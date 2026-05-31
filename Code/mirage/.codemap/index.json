@@ -1,4 +1,4 @@
-{
+﻿{
   "meta": {
     "schema_version": "1.0",
     "project_name": "MIRAGE",
@@ -320,7 +320,7 @@
     "CPU_Only/api_clients/mistral_client.py": {
       "language": "python",
       "layer": "shared",
-      "purpose": "Mistral platform client with 2-key round-robin rotation. safe_prompt=False disables Mistral's injected safety preamble. Import: mistralai.client.Mistral (Speakeasy v1.x SDK — not top-level mistralai.Mistral).",
+      "purpose": "Mistral platform client with 2-key round-robin rotation. safe_prompt=False disables Mistral's injected safety preamble. Import: mistralai.client.Mistral (Speakeasy v1.x SDK â€” not top-level mistralai.Mistral).",
       "exports": ["fn:CPU_Only/api_clients/mistral_client.py:call_mistral_with_roundrobin"],
       "imports_internal": ["config.py"],
       "imports_external": ["mistralai"],
@@ -527,7 +527,7 @@
     "run_dataset.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Single entry-point for full 668-seed MIRAGE dataset build. Steps: (1) sample seeds, (2) build_pentad_dataset (det + DeepSeek), (3) run_all_validations. Supports --det-only and --force flags. Expected output: 668×12=8016 rows in Dataset/seeds/pentad_dataset.parquet.",
+      "purpose": "Single entry-point for full 668-seed MIRAGE dataset build. Steps: (1) sample seeds, (2) build_pentad_dataset (det + DeepSeek), (3) run_all_validations. Supports --det-only and --force flags. Expected output: 668Ã—12=8016 rows in Dataset/seeds/pentad_dataset.parquet.",
       "exports": ["fn:run_dataset.py:main"],
       "imports_internal": ["config.py", "logger_setup.py", "Dataset/sample_seeds.py", "Dataset/pentad_generator.py", "Dataset/validate_pentad.py"],
       "imports_external": ["argparse", "logging"],
@@ -547,7 +547,7 @@
     "repair_empty_d_slots.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "One-shot repair: re-generates empty slot-d (context_shift) prompt_text rows in pentad_dataset.parquet. Root cause was StereoSet seeds with sentence=None causing literal 'None' to be sent to DeepSeek. Uses context column (BLANK→person) as fallback. Run after any build that produces empty d-slot rows.",
+      "purpose": "One-shot repair: re-generates empty slot-d (context_shift) prompt_text rows in pentad_dataset.parquet. Root cause was StereoSet seeds with sentence=None causing literal 'None' to be sent to DeepSeek. Uses context column (BLANKâ†’person) as fallback. Run after any build that produces empty d-slot rows.",
       "exports": ["fn:repair_empty_d_slots.py:main"],
       "imports_internal": ["config.py"],
       "imports_external": ["pandas", "openai"],
@@ -1631,19 +1631,19 @@
       "tags": ["osm", "qwen"],
       "semantic_signature": "qwen2.5-7b-instruct-osm"
     },
-    "model:config.py:gemma-2-9b-it": {
+    "model:config.py:gemma-2-2b-it": {
       "kind": "model_artifact",
-      "name": "gemma-2-9b-it",
+      "name": "gemma-2-2b-it",
       "file": "config.py",
       "lines": [114, 118],
       "layer": "ml_model",
       "purpose": "Google Gemma-2 9B IT; OSM #3; patched via TransformerLens.",
       "architecture": "Gemma-2",
       "params_count": "9B",
-      "checkpoint_path": "google/gemma-2-9b-it",
+      "checkpoint_path": "google/gemma-2-2b-it",
       "trained_on": [],
       "tags": ["osm", "gemma"],
-      "semantic_signature": "gemma-2-9b-it-osm"
+      "semantic_signature": "gemma-2-2b-it-osm"
     },
     "model:config.py:phi-4-mini-instruct": {
       "kind": "model_artifact",
@@ -1767,7 +1767,7 @@
         "fn:GPU_CPU/cdva_calibration.py:calibrate_tau",
         "model:config.py:llama-3.1-8b-instruct",
         "model:config.py:qwen2.5-7b-instruct",
-        "model:config.py:gemma-2-9b-it",
+        "model:config.py:gemma-2-2b-it",
         "model:config.py:phi-4-mini-instruct"
       ],
       "research": [
@@ -1791,7 +1791,7 @@
       ]
     },
     "by_tag": {
-      "osm":                  ["fn:GPU_CPU/load_osm.py:load_model", "fn:GPU_CPU/load_osm.py:load_all_osm_models", "fn:GPU_CPU/osm_behavioral.py:evaluate_osm_model", "fn:GPU_CPU/osm_behavioral.py:run_osm_behavioral", "model:config.py:llama-3.1-8b-instruct", "model:config.py:qwen2.5-7b-instruct", "model:config.py:gemma-2-9b-it", "model:config.py:phi-4-mini-instruct"],
+      "osm":                  ["fn:GPU_CPU/load_osm.py:load_model", "fn:GPU_CPU/load_osm.py:load_all_osm_models", "fn:GPU_CPU/osm_behavioral.py:evaluate_osm_model", "fn:GPU_CPU/osm_behavioral.py:run_osm_behavioral", "model:config.py:llama-3.1-8b-instruct", "model:config.py:qwen2.5-7b-instruct", "model:config.py:gemma-2-2b-it", "model:config.py:phi-4-mini-instruct"],
       "cdva":                 ["fn:GPU_CPU/cdva_patching.py:run_cdva_for_seed", "fn:GPU_CPU/cdva_patching.py:run_cdva_audit", "fn:GPU_CPU/cdva_calibration.py:calibrate_tau", "fn:GPU_CPU/utils_attention.py:patch_activation", "fn:CPU_Only/scoring.py:compute_mirage_full"],
       "download":             ["fn:Dataset/download_bbq.py:download_bbq", "fn:Dataset/download_crows_pairs.py:download_crows_pairs", "fn:Dataset/download_stereoset.py:download_stereoset", "fn:Dataset/download_winobias.py:download_winobias"],
       "held-out":             ["dataset:Dataset/download_winobias.py:WinoBias", "fn:Dataset/download_winobias.py:download_winobias", "fn:CPU_Only/predictive_validity.py:run_predictive_validity"],
@@ -1898,7 +1898,7 @@
           "fn:CPU_Only/api_behavioral.py:evaluate_api_model"
         ],
         "reason": "Both evaluate a model on the pentad dataset and return rows in the same MIRAGE result schema. Signatures differ only in transport (local inference vs. HTTP).",
-        "suggested_action": "keep both — distinct contexts: OSM runs local GPU inference with outlines constrained decoding; API routes to remote HTTP clients. Unification would require abstracting away torch/tokenizer vs. client dict."
+        "suggested_action": "keep both â€” distinct contexts: OSM runs local GPU inference with outlines constrained decoding; API routes to remote HTTP clients. Unification would require abstracting away torch/tokenizer vs. client dict."
       },
       {
         "symbols": [
@@ -1914,9 +1914,10 @@
           "fn:CPU_Only/api_clients/mistral_client.py:call_mistral_with_roundrobin",
           "fn:CPU_Only/api_clients/openrouter_client.py:call_openrouter_with_roundrobin"
         ],
-        "reason": "All three implement the same _RoundRobin class and the same (attempt loop → call → return standardised dict) pattern. ~65% structural overlap.",
+        "reason": "All three implement the same _RoundRobin class and the same (attempt loop â†’ call â†’ return standardised dict) pattern. ~65% structural overlap.",
         "suggested_action": "extract shared logic into CPU_Only/api_clients/_base_roundrobin.py with a generic RoundRobinClient(keys, call_fn, max_attempts_per_key) class. Each client provides only call_fn and imports the base."
       }
     ]
   }
 }
+

@@ -82,7 +82,7 @@ cp .env.example .env
 
 | Variable | Purpose |
 |---|---|
-| `HUGGINGFACE_TOKEN` | HuggingFace model downloads (must have access to Llama-3.1-8B-Instruct and Gemma-2-9b-it) |
+| `HUGGINGFACE_TOKEN` | HuggingFace model downloads (must have access to Llama-3.1-8B-Instruct and Gemma-2-2b-it) |
 | `AWS_BEDROCK_KEY` | Base64-encoded AWS credentials for Bedrock (covers gpt-oss-20b-1:0 and nova-2-lite-v1:0) |
 | `OPENROUTER_API_KEY_1` | OpenRouter fallback, round-robin slot 1 |
 | `OPENROUTER_API_KEY_2` | OpenRouter fallback, round-robin slot 2 |
@@ -338,7 +338,7 @@ WinoBias is used exclusively as a held-out test for predictive validity. It is n
 |---|---|---|---|
 | OSM-1 | `meta-llama/Llama-3.1-8B-Instruct` | Latest at download | TransformerLens |
 | OSM-2 | `Qwen/Qwen2.5-7B-Instruct` | Latest at download | nnsight |
-| OSM-3 | `google/gemma-2-9b-it` | Latest at download | TransformerLens |
+| OSM-3 | `google/gemma-2-2b-it` | Latest at download | TransformerLens |
 | OSM-4 | `microsoft/Phi-4-mini-instruct` | Latest at download | nnsight |
 | API-1 | `openai.gpt-oss-20b-1:0` | Bedrock / OpenRouter | N/A |
 | API-2 | `amazon.nova-2-lite-v1:0` | Bedrock / OpenRouter | N/A |

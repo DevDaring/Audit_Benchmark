@@ -4,7 +4,8 @@ Purpose: Load all 4 OSM models in bf16 with flash-attention-2. Verifies
          flash-attention is active for each loaded model.
 
 80 GB strategy:
-  All four models total ~56 GB in bf16, leaving ~24 GB free for activations,
+  All four models total ~42 GB in bf16 (Llama-3.1-8B ~16 GB, Qwen2.5-7B ~14 GB,
+  Gemma-2-2B ~4 GB, Phi-4-mini ~8 GB), leaving ~38 GB free for activations,
   KV cache, and TransformerLens overlaps.  load_all_osm_models() therefore
   loads every model once and keeps them in the _LOADED_MODELS cache for the
   entire pipeline run.  unload_model() is still available but is now only
@@ -13,7 +14,7 @@ Purpose: Load all 4 OSM models in bf16 with flash-attention-2. Verifies
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
   - Dao et al. (2022). "FlashAttention." NeurIPS 2022.
-  - MIRAGE OSM stack: Llama-3.1-8B, Qwen2.5-7B, Gemma-2-9b, Phi-4-mini.
+  - MIRAGE OSM stack: Llama-3.1-8B, Qwen2.5-7B, Gemma-2-2b, Phi-4-mini.
 
 Part of the MIRAGE codebase. See README.md for full project context.
 """
@@ -147,7 +148,7 @@ def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
     """
     Load all 4 OSM models. Verifies GPU is available before starting.
 
-    On an A100 80 GB all four models (~56 GB total) fit simultaneously, so
+    On an A100 80 GB all four models (~42 GB total) fit simultaneously, so
     this function loads them all and keeps them resident for the full pipeline
     run.  No intermediate unloading is required.
 
@@ -172,7 +173,7 @@ def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
     )
 
     # Warn if total estimated model VRAM (~56 GB) would exceed available memory.
-    _ESTIMATED_MODEL_VRAM_GB = 56.0
+    _ESTIMATED_MODEL_VRAM_GB = 42.0
     if gpu_mem_gb < _ESTIMATED_MODEL_VRAM_GB:
         logger.warning(
             "GPU has %.1f GB; all 4 models need ~%.1f GB.  "

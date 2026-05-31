@@ -116,8 +116,8 @@ OSM_MODELS: list[dict] = [
         "patching_lib": "nnsight",
     },
     {
-        "name": "gemma-2-9b-it",
-        "hf_id": "google/gemma-2-9b-it",
+        "name": "gemma-2-2b-it",
+        "hf_id": "google/gemma-2-2b-it",
         "patching_lib": "transformer_lens",
     },
     {

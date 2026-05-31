@@ -168,7 +168,7 @@ A `.env.example` file containing every key with empty values must exist in the r
 |---|---|---|
 | OSM-1 | `meta-llama/Llama-3.1-8B-Instruct` | TransformerLens |
 | OSM-2 | `Qwen/Qwen2.5-7B-Instruct` | nnsight |
-| OSM-3 | `google/gemma-2-9b-it` | TransformerLens |
+| OSM-3 | `google/gemma-2-2b-it` | TransformerLens |
 | OSM-4 | `microsoft/Phi-4-mini-instruct` | nnsight |
 
 All loaded in bf16 with flash-attention-2 enabled. Verify each loads on a single L4 24GB before main runs.
@@ -297,7 +297,7 @@ For every C(5,2) = 10 pairwise comparisons of counterfactual variants (c):
 
 ### 7.3 Library routing
 
-- Llama-3.1-8B, Gemma-2-9b: TransformerLens
+- Llama-3.1-8B, Gemma-2-2b: TransformerLens
 - Qwen-2.5-7B, Phi-4-mini: nnsight
 
 `utils_attention.py` wraps both libraries behind a uniform `patch_activation(model, prompt_A, prompt_B, position_A, position_B)` interface. If patching fails for a specific model (architecture mismatch, no support), the script logs the failure clearly and continues — that model gets MIRAGE-B only, not MIRAGE-Full.
@@ -567,7 +567,7 @@ Anyone who has never seen this project should be able to clone, install, run dry
 - [ ] HuggingFace token works (download a tiny model successfully)
 - [ ] All 4 OSM models load on GPU in bf16
 - [ ] Flash-attention is active (printed per model)
-- [ ] TransformerLens loads Llama-3.1-8B and Gemma-2-9b
+- [ ] TransformerLens loads Llama-3.1-8B and Gemma-2-2b
 - [ ] nnsight loads Qwen-2.5-7B and Phi-4-mini
 - [ ] AWS Bedrock invokes `openai.gpt-oss-20b-1:0` on one prompt
 - [ ] AWS Bedrock invokes `amazon.nova-2-lite-v1:0` on one prompt
