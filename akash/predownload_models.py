@@ -38,8 +38,8 @@ if not HF_TOKEN:
 try:
     from huggingface_hub import snapshot_download
 except ImportError:
-    print("[predownload] WARN: huggingface_hub not installed — skipping", flush=True)
-    sys.exit(0)
+    print("[predownload] ERROR: huggingface_hub not installed in venv", flush=True)
+    sys.exit(1)
 
 # ── Model list — must match config.py OSM_MODELS[*]["hf_id"] exactly ─────
 MODELS = [
