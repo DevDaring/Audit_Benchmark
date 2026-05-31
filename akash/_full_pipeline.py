@@ -53,8 +53,9 @@ run(c, "tmux kill-session -t full 2>/dev/null; true")
 #   a) Run install.sh (all packages)
 #   b) Copy .env from staging to runtime path
 #   c) Run 2-seed dry run
-INSTALL = f"bash /workspace/Audit_Benchmark/akash/install.sh"
-COPY_ENV = f"cp {REMOTE_ENV_STAGE} {REMOTE_ENV_FINAL}"
+INSTALL   = "bash /workspace/Audit_Benchmark/akash/install.sh"
+GIT_PULL  = "git -C /workspace/Audit_Benchmark pull --ff-only origin main"
+COPY_ENV  = f"cp {REMOTE_ENV_STAGE} {REMOTE_ENV_FINAL}"
 DRY = (
     "cd /workspace/Audit_Benchmark/Code/mirage && "
     "PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage "
@@ -63,6 +64,7 @@ DRY = (
 CHAIN = (
     f"{INSTALL} 2>&1 | tee {DRY_LOG}"
     f" && echo INSTALL_OK >> {DRY_LOG}"
+    f" && {GIT_PULL} 2>&1 | tee -a {DRY_LOG}"
     f" && {COPY_ENV}"
     f" && {DRY} 2>&1 | tee -a {DRY_LOG}"
     f"; echo PIPELINE_DONE >> {DRY_LOG}"
