@@ -3,6 +3,16 @@ File: GPU_CPU/utils_attention.py
 Purpose: Uniform interface for causal activation patching across
          TransformerLens (Llama, Gemma) and nnsight (Qwen, Phi-4).
 
+TransformerLens note:
+  load_osm.py loads plain HF AutoModelForCausalLM objects.  The patching
+  functions here convert them to the appropriate patching-library wrapper
+  on-demand and cache the result so conversion happens once per model.
+
+nnsight note (v0.6+):
+  After the first trace exits, saved proxies must be accessed via .value
+  before being used inside a second trace context.  Failing to do so
+  raises a RuntimeError in nnsight 0.6+.
+
 Implements / builds on / cites:
   - Meng et al. (2022). "Locating and Editing Factual Associations in GPT."
     NeurIPS 2022. https://arxiv.org/abs/2202.05262 -- activation patching.
@@ -18,6 +28,12 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level cache: HF model id -> HookedTransformer
+# Populated lazily so we only convert once per model per process.
+# ---------------------------------------------------------------------------
+_TL_MODEL_CACHE: dict[str, Any] = {}
 
 
 def _get_token_position(tokenizer: Any, prompt: str, target_token: str) -> int | None:
@@ -37,11 +53,72 @@ def _get_token_position(tokenizer: Any, prompt: str, target_token: str) -> int |
 
 
 # ---------------------------------------------------------------------------
+# TransformerLens helpers
+# ---------------------------------------------------------------------------
+
+def _ensure_hooked_transformer(model: Any, tokenizer: Any) -> Any:
+    """
+    Return a HookedTransformer wrapping the given model.
+
+    If `model` is already a HookedTransformer, return it unchanged.
+    Otherwise create one from the HF model in-place (weights are shared
+    via `hf_model=` parameter -- no extra VRAM copy).
+
+    The result is cached by model HF ID so conversion happens once per
+    process.  fold_ln / center_writing_weights are disabled so logits
+    match the HF model exactly (required for valid delta_logit comparisons).
+    """
+    try:
+        import transformer_lens  # type: ignore
+        if isinstance(model, transformer_lens.HookedTransformer):
+            return model
+    except ImportError as exc:
+        raise ImportError(
+            "transformer_lens not installed. "
+            "Install with: pip install transformer_lens==2.18.0"
+        ) from exc
+
+    import torch
+
+    hf_id = getattr(model.config, "_name_or_path", "") or "unknown_model"
+
+    if hf_id in _TL_MODEL_CACHE:
+        return _TL_MODEL_CACHE[hf_id]
+
+    logger.info(
+        "Converting HF model '%s' to HookedTransformer for CDVA patching ...", hf_id
+    )
+
+    device = next(model.parameters()).device
+    dtype = next(model.parameters()).dtype
+
+    tl_model = transformer_lens.HookedTransformer.from_pretrained(
+        hf_id,
+        hf_model=model,
+        dtype=dtype,
+        # Preserve raw HF weights -- no folding or centering.
+        # Folding LayerNorm into preceding weights changes the numeric scale,
+        # making delta_logit values incomparable across patched/unpatched runs.
+        fold_ln=False,
+        center_writing_weights=False,
+        center_unembed=False,
+        # Respect the HUGGINGFACE_TOKEN already used when loading the HF model
+        move_to_device=True,
+        device=str(device),
+    )
+    tl_model.eval()
+
+    _TL_MODEL_CACHE[hf_id] = tl_model
+    logger.info("HookedTransformer for '%s' cached (device=%s).", hf_id, device)
+    return tl_model
+
+
+# ---------------------------------------------------------------------------
 # TransformerLens patching (Llama, Gemma)
 # ---------------------------------------------------------------------------
 
 def patch_activation_transformer_lens(
-    tl_model: Any,
+    model: Any,
     tokenizer: Any,
     prompt_a: str,
     prompt_b: str,
@@ -51,6 +128,10 @@ def patch_activation_transformer_lens(
 ) -> float:
     """
     Causal activation patch using TransformerLens.
+
+    Accepts either a HookedTransformer or a plain HF AutoModelForCausalLM.
+    Plain HF models are converted to HookedTransformer on first call and
+    cached (see _ensure_hooked_transformer).
 
     For each layer, replaces the residual-stream activation at position_b
     in prompt_B with the cached activation at position_a from prompt_A.
@@ -66,15 +147,12 @@ def patch_activation_transformer_lens(
     """
     import torch
 
-    try:
-        import transformer_lens  # type: ignore
-    except ImportError as exc:
-        raise ImportError("transformer_lens not installed. Install with: pip install transformer_lens==2.9.0") from exc
+    tl_model = _ensure_hooked_transformer(model, tokenizer)
 
     # Tokenise
     tokens_b = tl_model.to_tokens(prompt_b)
 
-    # Forward pass on prompt_A to cache activations
+    # Forward pass on prompt_A to cache residual activations
     with torch.no_grad():
         _, cache_a = tl_model.run_with_cache(prompt_a, return_type=None)
 
@@ -131,10 +209,16 @@ def patch_activation_nnsight(
     bias_answer: str,
 ) -> float:
     """
-    Causal activation patch using nnsight.
+    Causal activation patch using nnsight (v0.6+).
 
     Replaces residual stream at (layer, position_b) in prompt_B with the
     cached residual at (layer, position_a) from prompt_A, for every layer.
+
+    nnsight 0.6+ note:
+      After a trace context exits, saved proxies are resolved — their tensor
+      value is accessible via `.value`.  When assigning a saved activation
+      inside a *second* trace context, we must pass `.value` explicitly;
+      passing the proxy object itself raises RuntimeError in nnsight 0.6+.
 
     Returns
     -------
@@ -146,24 +230,39 @@ def patch_activation_nnsight(
     try:
         from nnsight import LanguageModel  # type: ignore
     except ImportError as exc:
-        raise ImportError("nnsight not installed. Install with: pip install nnsight==0.3.7") from exc
+        raise ImportError(
+            "nnsight not installed. Install with: pip install nnsight"
+        ) from exc
 
     nn_model = LanguageModel(model, tokenizer=tokenizer)
 
-    # Collect cache from prompt_A
-    cache_a_acts: dict[int, "torch.Tensor"] = {}
+    # ------------------------------------------------------------------
+    # Pass 1: collect residual activations from prompt_A
+    # ------------------------------------------------------------------
+    cache_a_proxies: dict[int, Any] = {}
     with nn_model.trace(prompt_a):
         for layer_idx, layer in enumerate(nn_model.model.layers):
-            cache_a_acts[layer_idx] = layer.output[0][:, position_a, :].save()
+            cache_a_proxies[layer_idx] = layer.output[0][:, position_a, :].save()
 
-    # Patched forward on prompt_B
+    # Resolve .value OUTSIDE the trace so we have concrete tensors
+    cache_a_vals: dict[int, "torch.Tensor"] = {
+        idx: proxy.value.clone() for idx, proxy in cache_a_proxies.items()
+    }
+
+    # ------------------------------------------------------------------
+    # Pass 2: patched forward on prompt_B (inject cache_a_vals)
+    # ------------------------------------------------------------------
     with nn_model.trace(prompt_b) as tracer:
         for layer_idx, layer in enumerate(nn_model.model.layers):
-            if layer_idx in cache_a_acts:
-                layer.output[0][:, position_b, :] = cache_a_acts[layer_idx]
+            if layer_idx in cache_a_vals:
+                # Use the concrete tensor (.value already resolved) --
+                # NOT the proxy object, which is invalid in a new trace.
+                layer.output[0][:, position_b, :] = cache_a_vals[layer_idx]
         patched_logits = nn_model.lm_head.output.save()
 
-    # Original forward on prompt_B
+    # ------------------------------------------------------------------
+    # Pass 3: unpatched forward on prompt_B (baseline)
+    # ------------------------------------------------------------------
     with nn_model.trace(prompt_b):
         original_logits = nn_model.lm_head.output.save()
 
@@ -198,7 +297,8 @@ def patch_activation(
     Parameters
     ----------
     model : Any
-        Loaded model object.
+        Loaded model object (plain HF AutoModelForCausalLM or HookedTransformer).
+        For transformer_lens path, the model is auto-converted if needed.
     tokenizer : Any
         Corresponding tokenizer.
     prompt_a : str
@@ -228,4 +328,7 @@ def patch_activation(
             model, tokenizer, prompt_a, prompt_b, position_a, position_b, bias_answer
         )
     else:
-        raise ValueError(f"Unknown patching_lib: '{patching_lib}'. Use 'transformer_lens' or 'nnsight'.")
+        raise ValueError(
+            f"Unknown patching_lib: '{patching_lib}'. "
+            "Use 'transformer_lens' or 'nnsight'."
+        )

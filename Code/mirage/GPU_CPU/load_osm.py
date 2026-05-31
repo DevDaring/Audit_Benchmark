@@ -101,6 +101,41 @@ def load_model(model_cfg: dict, force_reload: bool = False) -> tuple[Any, Any]:
     return model, tokenizer
 
 
+def unload_model(name: str) -> None:
+    """
+    Remove a model from the in-process cache and free its VRAM.
+
+    Call this before loading a TransformerLens HookedTransformer on top of the
+    same model weights to avoid an OOM (A100 40 GB is tight when both the HF
+    model and the TL copy coexist for the 9 B Gemma model).
+    """
+    import gc
+    import torch
+
+    if name in _LOADED_MODELS:
+        model, _ = _LOADED_MODELS.pop(name)
+        try:
+            del model
+        except Exception:
+            pass
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Model '%s' unloaded and VRAM freed.", name)
+    else:
+        logger.debug("unload_model: '%s' not in cache; nothing to do.", name)
+
+    # Also clear the TransformerLens cache entry so a fresh TL model can be
+    # created after a reload.
+    try:
+        from GPU_CPU.utils_attention import _TL_MODEL_CACHE
+        keys_to_remove = [k for k in _TL_MODEL_CACHE if name.lower() in k.lower()]
+        for k in keys_to_remove:
+            del _TL_MODEL_CACHE[k]
+    except Exception:
+        pass
+
+
 def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
     """
     Load all 4 OSM models. Verifies GPU is available before starting.

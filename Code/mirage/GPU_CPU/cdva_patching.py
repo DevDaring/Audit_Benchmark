@@ -26,6 +26,7 @@ Implements / builds on / cites:
 Part of the MIRAGE codebase. See README.md for full project context.
 """
 
+import gc
 import itertools
 import logging
 import sys
@@ -34,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
@@ -262,11 +264,44 @@ def run_cdva(
 
     for model_cfg in OSM_MODELS:
         model_name = model_cfg["name"]
+        patching_lib = model_cfg["patching_lib"]
+
         if model_name not in models:
             logger.warning("Model '%s' not loaded, skipping CDVA.", model_name)
             continue
 
         model, tokenizer = models[model_name]
+
+        # For TransformerLens patching (Llama, Gemma) the HF model is converted
+        # to a HookedTransformer inside utils_attention.py.  On a 40 GB A100
+        # the conversion can coexist with the HF model in VRAM for 8 B params
+        # (~32 GB total) but is very tight for 9 B Gemma (~36 GB).  We free the
+        # HF model BEFORE conversion and reload it afterwards to stay within budget.
+        tl_unloaded = False
+        if patching_lib == "transformer_lens":
+            from GPU_CPU.load_osm import unload_model, load_model as _reload
+            free_gb = (
+                torch.cuda.get_device_properties(0).total_memory
+                - torch.cuda.memory_allocated()
+            ) / (1024 ** 3)
+            model_param_gb = sum(
+                p.numel() * p.element_size() for p in model.parameters()
+            ) / (1024 ** 3)
+            # If less than 1.5× the model's own weight budget is free, unload first
+            if free_gb < model_param_gb * 1.5:
+                logger.info(
+                    "CDVA: freeing HF model '%s' (%.1f GB) before TL conversion "
+                    "(only %.1f GB VRAM free).",
+                    model_name, model_param_gb, free_gb,
+                )
+                unload_model(model_name)
+                del model
+                gc.collect()
+                torch.cuda.empty_cache()
+                tl_unloaded = True
+                # Load a fresh reference for the TL converter (uses local HF cache)
+                model, tokenizer = _reload(model_cfg)
+
         logger.info("CDVA: model=%s, %d seeds ...", model_name, len(seed_ids))
 
         for i, seed_id in enumerate(seed_ids):
@@ -284,6 +319,18 @@ def run_cdva(
                 df_partial = pd.DataFrame(all_rows)
                 df_partial.to_parquet(_CDVA_PATH, index=False)
                 logger.info("  CDVA checkpoint: %d seeds done.", i + 1)
+
+        # Restore the HF model in the shared dict if we unloaded it for TL
+        if tl_unloaded:
+            from GPU_CPU.load_osm import load_model as _reload
+            try:
+                restored_model, restored_tok = _reload(model_cfg)
+                models[model_name] = (restored_model, restored_tok)
+                logger.info("HF model '%s' reloaded after CDVA.", model_name)
+            except Exception as exc:
+                logger.warning(
+                    "Could not reload HF model '%s' after CDVA: %s", model_name, exc
+                )
 
     final = pd.DataFrame(all_rows)
     if len(final) > 0:
