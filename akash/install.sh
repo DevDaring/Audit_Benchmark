@@ -118,6 +118,9 @@ python3 -m pip install \
     "requests>=2.31.0" \
     "paramiko>=3.4.0"
 
+# Explicit verification that python-dotenv is importable (catches silent failures)
+python3 -c "import dotenv" || python3 -m pip install --force-reinstall "python-dotenv>=1.0.0"
+
 # ------------------------------------------------------------------ final verification
 echo ""
 echo "[install] ===== PACKAGE VERIFICATION ====="
