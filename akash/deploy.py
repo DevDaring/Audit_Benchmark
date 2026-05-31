@@ -90,18 +90,13 @@ profiles:
             vendor:
               nvidia:
                 - model: a100
-                  ram: 40Gi
+                  ram: 80Gi
   placement:
     akash:
-      attributes:
-        host: akash
-      signedBy:
-        anyOf:
-          - akash1365yvmc4s7awdyj3n2sav7xfx76adc6dnmlx63
       pricing:
         mirage:
           denom: uakt
-          amount: 10000
+          amount: 1000000
 
 deployment:
   mirage:
@@ -154,29 +149,32 @@ def _try_cli_deploy(sdl_path: Path) -> bool:
 
 
 def _print_console_instructions(sdl_path: Path) -> None:
-    print(dedent(f"""
-    ┌──────────────────────────────────────────────────────────────────┐
-    │  AKASH CONSOLE DEPLOYMENT INSTRUCTIONS                          │
-    │  (use these if you prefer the web UI over the CLI)              │
-    ├──────────────────────────────────────────────────────────────────┤
-    │  1. Go to:  https://console.akash.network/                      │
-    │  2. Connect your AKT wallet (Keplr or Leap)                     │
-    │  3. Click "Deploy"  →  "From SDL file"                          │
-    │  4. Upload:  {str(sdl_path):<50}│
-    │  5. Review resources: 1× A100 40 GB, 16 CPU, 80 GB RAM          │
-    │  6. Set deposit (2 AKT recommended) and click "Deploy"          │
-    │  7. Wait for bids (30-60 s), select cheapest provider           │
-    │  8. Accept the lease — container boots, SSH becomes available   │
-    │                                                                  │
-    │  SSH access:                                                     │
-    │    ssh root@<PROVIDER_IP> -p <FORWARDED_PORT>                   │
-    │    password: MirageVM2026!                                       │
-    │                                                                  │
-    │  After SSH:                                                      │
-    │    tmux attach -t mirage                                         │
-    │    # or: python akash/run_install.py  (from your local machine) │
-    └──────────────────────────────────────────────────────────────────┘
-    """))
+    lines = [
+        "",
+        "=" * 68,
+        "  AKASH CONSOLE DEPLOYMENT INSTRUCTIONS",
+        "  (use these if you prefer the web UI over the CLI)",
+        "=" * 68,
+        "  1. Go to:  https://console.akash.network/",
+        "  2. Connect your AKT wallet (Keplr or Leap)",
+        '  3. Click "Deploy" -> "From SDL file"',
+        f"  4. Upload:  {sdl_path}",
+        "  5. Review resources: 1x A100 40 GB, 16 CPU, 80 GB RAM",
+        "  6. Set deposit (2 AKT recommended) and click 'Deploy'",
+        "  7. Wait for bids (30-60 s), select cheapest provider",
+        "  8. Accept the lease -- container boots, SSH becomes available",
+        "",
+        "  SSH access:",
+        "    ssh root@<PROVIDER_IP> -p <FORWARDED_PORT>",
+        "    password: MirageVM2026!",
+        "",
+        "  After SSH:",
+        "    tmux attach -t mirage",
+        "    # or run: python akash/run_install.py --host <IP> --port <PORT>",
+        "=" * 68,
+        "",
+    ]
+    print("\n".join(lines))
 
 
 def main() -> None:

@@ -22,3 +22,6 @@ Thumbs.db
 
 # Akash SDL (contains base64-encoded .env)
 akash/deployment.yaml
+
+# Akash VM SSH details (contains IP/port of live VM)
+akash/vm_ssh.txt
