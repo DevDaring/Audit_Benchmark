@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# P1e: pipeline supervisor — re-launches _full_pipeline.py on crash/eviction.
+# Runs on every container boot (launched by SDL startup command).
+# Resumes from /data/state markers — never re-does completed steps.
+set -uo pipefail
+
+REPO="${REPO_DIR:-/data/Audit_Benchmark}"
+STATE="${STATE_DIR:-/data/state}"
+VENV_PY="${VENV:-/data/venv}/bin/python"
+mkdir -p /data/logs "$STATE"
+
+echo "[supervise] $(date -u +%FT%TZ) boot — pid1_age=$(ps -p 1 -o etimes= 2>/dev/null | tr -d ' ')s"
+
+# ── Already done? ─────────────────────────────────────────────────────────
+if [ -f "$STATE/PIPELINE_COMPLETE" ]; then
+  echo "[supervise] PIPELINE_COMPLETE already — nothing to do."
+  exit 0
+fi
+
+# ── Wait for .env (uploaded via SFTP by _deploy_mirage.py) ───────────────
+echo "[supervise] Waiting for /data/.env (HF_TOKEN needed for gated models)..."
+WAITED=0
+until [ -f /data/.env ] || [ "$WAITED" -ge 600 ]; do
+  sleep 10; WAITED=$((WAITED + 10))
+  [ $((WAITED % 60)) -eq 0 ] && echo "[supervise] still waiting for .env... ${WAITED}s"
+done
+if [ -f /data/.env ]; then
+  echo "[supervise] .env found after ${WAITED}s — sourcing tokens"
+  # Export HF_TOKEN from .env so predownload can use it
+  HF_LINE=$(grep '^HUGGINGFACE_TOKEN=' /data/.env 2>/dev/null || true)
+  [ -n "$HF_LINE" ] && export HF_TOKEN="${HF_LINE#*=}" && export HUGGINGFACE_TOKEN="${HF_LINE#*=}"
+else
+  echo "[supervise] WARN: .env not found after 600s — gated model downloads may fail"
+fi
+
+# ── Pull latest code before first attempt ─────────────────────────────────
+git -C "$REPO" pull --ff-only origin main 2>&1 || true
+
+# ── Retry loop ─────────────────────────────────────────────────────────────
+ATTEMPT=0
+until [ -f "$STATE/PIPELINE_COMPLETE" ]; do
+  ATTEMPT=$((ATTEMPT + 1))
+  TS=$(date -u +%FT%TZ)
+  AGE=$(ps -p 1 -o etimes= 2>/dev/null | tr -d ' ')
+  LOG="/data/logs/pipeline_attempt_${ATTEMPT}.log"
+
+  echo "[supervise] attempt $ATTEMPT at $TS (pid1_age=${AGE}s) → $LOG"
+
+  # Use venv python if available, fall back to system python3
+  PY="$VENV_PY"
+  [ -x "$PY" ] || PY="python3"
+
+  "$PY" "$REPO/akash/_full_pipeline.py" 2>&1 | tee -a "$LOG"
+
+  if [ -f "$STATE/PIPELINE_COMPLETE" ]; then
+    echo "[supervise] PIPELINE_COMPLETE after attempt $ATTEMPT"
+    break
+  fi
+
+  echo "[supervise] attempt $ATTEMPT exited without completion — resuming in 15s"
+  sleep 15
+  # Pull latest code in case a fix was pushed between attempts
+  git -C "$REPO" pull --ff-only origin main 2>&1 || true
+done
+
+echo "[supervise] done at $(date -u +%FT%TZ)"

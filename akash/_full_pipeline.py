@@ -1,157 +1,104 @@
 """
-Full pipeline:
-  1. Upload .env to /workspace/mirage.env (before install, survives the chain)
-  2. Launch tmux:
-       install.sh
-       → git pull
-       → cp .env (HF token available for predownload)
-       → predownload_models.py  (download all 4 models to HF cache, no GPU)
-       → dry_run_gpu_cpu.py --n-seeds 2  (loads from cache, no network)
-  3. Poll until PIPELINE_DONE
+On-VM checkpoint-driven pipeline orchestrator.
 
-WHY predownload_models.py is here:
-  Without pre-downloading, HuggingFace downloads happen DURING the dry run
-  while the GPU is active.  Large model downloads (14-16 GB each) combined
-  with an active CUDA context cause host-level memory pressure on Akash
-  providers, which triggers node-level container eviction (OOM, exit 137).
-  Pre-downloading is pure disk I/O with no GPU activity — much safer.
+Called by akash/supervise_pipeline.sh on every container boot.
+Each step checks /data/state/<MARKER> before running — already-done steps
+are skipped instantly. This makes the full pipeline resumable across any
+number of container evictions.
+
+State markers survive because /data is a PERSISTENT Akash volume.
+
+Run order:
+  INSTALL_OK       → install Python packages into /data/venv (idempotent)
+  PREDOWNLOAD_OK   → download all 4 models to /data/hf_cache  (resumable)
+  DRYRUN_OK        → 2-seed GPU dry run loading from cache      (clean exit)
+  PIPELINE_COMPLETE → written only when all steps succeed
 """
-import paramiko, sys, time
-from pathlib import Path
+import logging
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
 
-VM_HOST = "provider.a100.dsm.val.akash.pub"
-VM_PORT = 32355
-LOCAL_ENV = Path(__file__).resolve().parents[1] / "Code" / "mirage" / ".env"
-REMOTE_ENV_STAGE = "/workspace/mirage.env"          # staging path
-REMOTE_ENV_FINAL = "/workspace/Audit_Benchmark/Code/mirage/.env"  # runtime path
-DRY_LOG = "/workspace/full_pipeline.log"
-POLL = 30
-MAX_MIN = 90   # extended: predownload can take 10-15 min for ~42 GB
-
-
-def conn():
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(VM_HOST, port=VM_PORT, username="root", password="MirageVM2026!",
-              timeout=15, banner_timeout=30)
-    return c
-
-
-def run(c, cmd, t=15):
-    _, o, e = c.exec_command(cmd, timeout=t)
-    return (o.read().decode(errors="replace") + e.read().decode(errors="replace")).strip()
-
-
-def sp(s):
-    try: print(s, flush=True)
-    except UnicodeEncodeError: print(s.encode("ascii", errors="replace").decode(), flush=True)
-
-
-# ---- 1. Upload .env to staging path ----
-sp(f"[1] Uploading .env to {REMOTE_ENV_STAGE} ...")
-c = conn()
-sftp = c.open_sftp()
-sftp.put(str(LOCAL_ENV), REMOTE_ENV_STAGE)
-sftp.close()
-sp(f"    Uploaded ({LOCAL_ENV.stat().st_size} bytes)")
-hf = run(c, f"grep -c HUGGINGFACE_TOKEN {REMOTE_ENV_STAGE}")
-sp(f"    HF token lines: {hf.split()[-1]}")
-
-# ---- 2. Kill stale sessions ----
-run(c, "tmux kill-session -t full 2>/dev/null; true")
-
-# ---- 3. Build chained command ----
-# Steps in tmux (each step runs only if the previous succeeded):
-#   a) install.sh         — all Python packages
-#   b) INSTALL_OK marker  — sentinel so polling knows install finished
-#   c) git pull           — get latest code (in case we pushed fixes after launching)
-#   d) cp .env            — HF token must be available before predownload
-#   e) predownload_models — download all 4 OSM models to HF disk cache (no GPU)
-#   f) PREDOWNLOAD_OK     — sentinel so polling knows models are cached
-#   g) dry_run_gpu_cpu    — load models from cache, run 2-seed validation
-#   h) PIPELINE_DONE      — final sentinel (always written, success or fail)
-INSTALL   = "bash /workspace/Audit_Benchmark/akash/install.sh"
-GIT_PULL  = "git -C /workspace/Audit_Benchmark pull --ff-only origin main"
-COPY_ENV  = f"cp {REMOTE_ENV_STAGE} {REMOTE_ENV_FINAL}"
-PREDOWNLOAD = (
-    "cd /workspace/Audit_Benchmark && "
-    "PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage "
-    "python3 akash/predownload_models.py"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [pipeline] %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
 )
-DRY = (
-    "cd /workspace/Audit_Benchmark/Code/mirage && "
-    "PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage "
-    "python3 Dry_Run/dry_run_gpu_cpu.py --n-seeds 2"
+log = logging.getLogger(__name__)
+
+# ── Paths (all on persistent /data where possible) ───────────────────────
+STATE = pathlib.Path(os.environ.get("STATE_DIR", "/data/state"))
+REPO  = pathlib.Path(os.environ.get("REPO_DIR", "/data/Audit_Benchmark"))
+VENV  = pathlib.Path(os.environ.get("VENV", "/data/venv"))
+PY    = str(VENV / "bin" / "python") if (VENV / "bin" / "python").exists() else sys.executable
+
+STATE.mkdir(parents=True, exist_ok=True)
+
+
+def done(name: str) -> bool:
+    return (STATE / name).exists()
+
+
+def mark(name: str) -> None:
+    (STATE / name).touch()
+    log.info("MARKER written: %s", name)
+
+
+def step(marker: str, argv: list, cwd=None, extra_env: dict = None) -> None:
+    """Run a pipeline step unless its marker already exists."""
+    if done(marker):
+        log.info("SKIP %s (marker already present)", marker)
+        return
+    log.info("START %s: %s", marker, " ".join(str(a) for a in argv))
+    env = {**os.environ, **(extra_env or {})}
+    # Ensure venv is on PATH so sub-scripts can call `python` directly
+    env["PATH"] = str(VENV / "bin") + ":" + env.get("PATH", "")
+    env["PYTHONPATH"] = str(REPO / "Code" / "mirage")
+    # All cache dirs already set in SDL env; re-assert here for manual runs
+    env.setdefault("HF_HOME", "/data/hf_cache")
+    env.setdefault("HUGGINGFACE_HUB_CACHE", "/data/hf_cache/hub")
+    env.setdefault("PIP_CACHE_DIR", "/data/pip_cache")
+    env.setdefault("XDG_CACHE_HOME", "/data/cache")
+
+    r = subprocess.run(argv, cwd=str(cwd or REPO), env=env)
+    if r.returncode != 0:
+        log.error("FAILED %s (exit %d) — supervisor will retry this step", marker, r.returncode)
+        sys.exit(r.returncode)
+    mark(marker)
+
+
+# ── Step 1: Install packages into persistent venv ─────────────────────────
+step("INSTALL_OK", ["bash", str(REPO / "akash" / "install.sh")])
+
+# ── Step 2: Copy .env to repo runtime path ────────────────────────────────
+# The supervisor uploaded /data/.env via SFTP before starting.
+# Copy it to the path the codebase expects, but only if not already there.
+env_src  = pathlib.Path("/data/.env")
+env_dest = REPO / "Code" / "mirage" / ".env"
+if env_src.exists():
+    if not env_dest.exists() or env_src.stat().st_mtime > env_dest.stat().st_mtime:
+        shutil.copy2(env_src, env_dest)
+        log.info("Copied /data/.env → %s", env_dest)
+elif not env_dest.exists():
+    log.warning(".env not found at /data/.env or %s — API keys may be missing", env_dest)
+
+# ── Step 3: Pre-download all 4 OSM models to /data/hf_cache ──────────────
+# Pure I/O — no GPU activity, no CUDA context.
+# Eviction-safe: snapshot_download resumes from partial .incomplete blobs.
+step("PREDOWNLOAD_OK", [PY, str(REPO / "akash" / "predownload_models.py")])
+
+# ── Step 4: 2-seed GPU dry run ─────────────────────────────────────────────
+# Loads all models from disk cache — zero network downloads during this phase.
+# Sequential load/unload keeps peak VRAM ≈ 16 GB (one model at a time).
+step(
+    "DRYRUN_OK",
+    [PY, str(REPO / "Code" / "mirage" / "Dry_Run" / "dry_run_gpu_cpu.py"),
+     "--n-seeds", "2"],
+    cwd=REPO / "Code" / "mirage",
 )
-CHAIN = (
-    f"{INSTALL} 2>&1 | tee {DRY_LOG}"
-    f" && echo INSTALL_OK >> {DRY_LOG}"
-    f" && {GIT_PULL} 2>&1 | tee -a {DRY_LOG}"
-    f" && {COPY_ENV}"
-    f" && {PREDOWNLOAD} 2>&1 | tee -a {DRY_LOG}"
-    f" && echo PREDOWNLOAD_OK >> {DRY_LOG}"
-    f" && {DRY} 2>&1 | tee -a {DRY_LOG}"
-    f"; echo PIPELINE_DONE >> {DRY_LOG}"
-)
-tmux_cmd = f"tmux new-session -d -s full '{CHAIN}'"
-sp(f"\n[2] Launching chained pipeline in tmux ...")
-sp(run(c, tmux_cmd, t=10))
-time.sleep(2)
-sp(run(c, "tmux list-sessions 2>&1"))
-c.close()
-sp(f"    Log: {DRY_LOG}\n")
 
-# ---- 4. Poll ----
-deadline = time.time() + MAX_MIN * 60
-polls = 0
-install_ok = False
-predown_ok = False
-
-while time.time() < deadline:
-    time.sleep(POLL)
-    polls += 1
-    try:
-        c2 = conn()
-        done  = run(c2, f"grep -c PIPELINE_DONE {DRY_LOG} 2>/dev/null || echo 0")
-        iok   = run(c2, f"grep -c INSTALL_OK {DRY_LOG} 2>/dev/null || echo 0")
-        pok   = run(c2, f"grep -c PREDOWNLOAD_OK {DRY_LOG} 2>/dev/null || echo 0")
-        size  = run(c2, f"wc -c < {DRY_LOG} 2>/dev/null || echo 0")
-        tail  = run(c2, f"tail -8 {DRY_LOG}")
-        c2.close()
-    except Exception as ex:
-        sp(f"[{polls*POLL}s] reconnect: {ex}"); continue
-
-    if not install_ok and iok.strip().endswith("1"):
-        sp(f"  *** INSTALL_OK at {polls*POLL}s — models pre-downloading ... ***")
-        install_ok = True
-
-    if not predown_ok and pok.strip().endswith("1"):
-        sp(f"  *** PREDOWNLOAD_OK at {polls*POLL}s — all models cached, dry run starting ***")
-        predown_ok = True
-
-    phase = "PREDOWNLOAD" if (install_ok and not predown_ok) else ("DRY_RUN" if predown_ok else "INSTALL")
-    sp(f"[{polls*POLL}s] log={size.split()[-1]}B phase={phase} DONE={done.split()[-1]}")
-    for ln in tail.splitlines():
-        sp("  " + ln)
-
-    if done.strip().endswith("1"):
-        break
-else:
-    sp("TIMEOUT"); sys.exit(1)
-
-# ---- 5. Final result ----
-c = conn()
-sp("\n" + "=" * 60)
-sp("FINAL LOG (last 120 lines):")
-sp("=" * 60)
-sp(run(c, f"tail -120 {DRY_LOG}", t=60))
-fails  = int(run(c, f"grep -c ' FAIL' {DRY_LOG} 2>/dev/null || echo 0").split()[-1])
-passes = int(run(c, f"grep -c ' PASS' {DRY_LOG} 2>/dev/null || echo 0").split()[-1])
-c.close()
-sp(f"\nRESULT: {passes} PASS, {fails} FAIL")
-if fails == 0:
-    sp("2-SEED DRY RUN PASSED.")
-else:
-    sp("Dry run FAILs found. Review log above.")
-    sys.exit(1)
-
+# ── All done ──────────────────────────────────────────────────────────────
+mark("PIPELINE_COMPLETE")
+log.info("=== PIPELINE_COMPLETE — dry run passed. Ready for full production run. ===")
