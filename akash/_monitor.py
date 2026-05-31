@@ -11,6 +11,12 @@ Or with explicit host/port:
 Reads akash/vm_ssh.txt for host/port if not provided.
 """
 import argparse, sys, time, pathlib, re
+
+# Windows: reconfigure stdout to UTF-8 to avoid cp1252 crashes on VM output
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
 try:
     import paramiko
 except ImportError:

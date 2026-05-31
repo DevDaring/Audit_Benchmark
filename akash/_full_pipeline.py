@@ -32,7 +32,14 @@ log = logging.getLogger(__name__)
 STATE = pathlib.Path(os.environ.get("STATE_DIR", "/data/state"))
 REPO  = pathlib.Path(os.environ.get("REPO_DIR", "/data/Audit_Benchmark"))
 VENV  = pathlib.Path(os.environ.get("VENV", "/data/venv"))
-PY    = str(VENV / "bin" / "python") if (VENV / "bin" / "python").exists() else sys.executable
+
+
+def _venv_python() -> str:
+    """Return the venv python path; re-evaluated after install creates the venv."""
+    candidate = str(VENV / "bin" / "python")
+    if pathlib.Path(candidate).exists():
+        return candidate
+    return sys.executable
 
 STATE.mkdir(parents=True, exist_ok=True)
 
@@ -72,6 +79,10 @@ def step(marker: str, argv: list, cwd=None, extra_env: dict = None) -> None:
 # ── Step 1: Install packages into persistent venv ─────────────────────────
 step("INSTALL_OK", ["bash", str(REPO / "akash" / "install.sh")])
 
+# After install, venv now exists — always use it for subsequent steps
+PY = _venv_python()
+log.info("Using Python: %s", PY)
+
 # ── Step 2: Copy .env to repo runtime path ────────────────────────────────
 # The supervisor uploaded /data/.env via SFTP before starting.
 # Copy it to the path the codebase expects, but only if not already there.
@@ -85,6 +96,7 @@ elif not env_dest.exists():
     log.warning(".env not found at /data/.env or %s — API keys may be missing", env_dest)
 
 # ── Step 3: Pre-download all 4 OSM models to /data/hf_cache ──────────────
+PY = _venv_python()  # re-check in case step 2 somehow changed state
 # Pure I/O — no GPU activity, no CUDA context.
 # Eviction-safe: snapshot_download resumes from partial .incomplete blobs.
 step("PREDOWNLOAD_OK", [PY, str(REPO / "akash" / "predownload_models.py")])
@@ -92,6 +104,7 @@ step("PREDOWNLOAD_OK", [PY, str(REPO / "akash" / "predownload_models.py")])
 # ── Step 4: 2-seed GPU dry run ─────────────────────────────────────────────
 # Loads all models from disk cache — zero network downloads during this phase.
 # Sequential load/unload keeps peak VRAM ≈ 16 GB (one model at a time).
+PY = _venv_python()
 step(
     "DRYRUN_OK",
     [PY, str(REPO / "Code" / "mirage" / "Dry_Run" / "dry_run_gpu_cpu.py"),
