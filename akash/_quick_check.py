@@ -4,7 +4,7 @@ import paramiko, sys
 def conn():
     c = paramiko.SSHClient()
     c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect("provider.a100.dsm.val.akash.pub", port=30594, username="root",
+    c.connect("provider.a100.dsm.val.akash.pub", port=32355, username="root",
               password="MirageVM2026!", timeout=15, banner_timeout=30)
     return c
 
@@ -24,3 +24,4 @@ try:
 except Exception as ex:
     print(f"FAILED: {ex}")
     sys.exit(1)
+

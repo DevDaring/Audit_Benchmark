@@ -35,7 +35,7 @@ except ImportError:
 # VM SSH coordinates — edit to match akash/vm_ssh.txt
 # ---------------------------------------------------------------------------
 VM_HOST = os.getenv("AKASH_VM_HOST", "provider.a100.dsm.val.akash.pub")
-VM_PORT = int(os.getenv("AKASH_VM_PORT", "30594"))
+VM_PORT = int(os.getenv("AKASH_VM_PORT", "32355"))
 VM_USER = os.getenv("AKASH_VM_USER", "root")
 VM_KEY_PATH = os.getenv("AKASH_VM_KEY", "")  # leave empty for password auth
 VM_PASSWORD = os.getenv("AKASH_VM_PASSWORD", "")  # used if no key
@@ -154,3 +154,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -8,7 +8,7 @@ import paramiko, sys, time
 from pathlib import Path
 
 VM_HOST = "provider.a100.dsm.val.akash.pub"
-VM_PORT = 30594
+VM_PORT = 32355
 LOCAL_ENV = Path(__file__).resolve().parents[1] / "Code" / "mirage" / ".env"
 REMOTE_ENV_STAGE = "/workspace/mirage.env"          # staging path
 REMOTE_ENV_FINAL = "/workspace/Audit_Benchmark/Code/mirage/.env"  # runtime path
@@ -121,3 +121,4 @@ if fails == 0:
 else:
     sp("Dry run FAILs found. Review log above.")
     sys.exit(1)
+

@@ -75,7 +75,9 @@ def _test_gpu_available() -> bool:
 def _test_transformerlens() -> bool:
     try:
         import transformer_lens  # type: ignore
-        _mark("TRANSFORMER_LENS_IMPORT", True, f"v{transformer_lens.__version__}")
+        # v2.18.0 removed __version__; use getattr with fallback
+        ver = getattr(transformer_lens, "__version__", "installed (v2.18.0+)")
+        _mark("TRANSFORMER_LENS_IMPORT", True, ver)
         return True
     except Exception as exc:
         _mark("TRANSFORMER_LENS_IMPORT", False, str(exc))
@@ -106,16 +108,22 @@ def _test_flash_attention() -> bool:
 
 def _test_osm_load_and_eval() -> bool:
     """
-    Load all 4 OSM models and run batched inference on _N_SEEDS probe prompts.
+    Load each OSM model sequentially, run batched inference, then unload
+    before loading the next model.
+
+    Sequential load/unload (rather than keeping all 4 in VRAM simultaneously)
+    keeps peak VRAM at ~18 GB (largest single model) instead of ~62 GB
+    accumulated, and avoids node-level eviction on shared Kubernetes providers
+    such as Akash where high simultaneous VRAM/RAM usage triggers container
+    eviction even when per-container cgroup limits are not exceeded.
 
     Uses the batch inference path (_generate_constrained_batch) so we also
     validate that the batch path is functional during the dry run.
     """
     all_pass = True
     try:
-        from GPU_CPU.load_osm import load_model
+        from GPU_CPU.load_osm import load_model, unload_model
         from GPU_CPU.osm_behavioral import _generate_constrained_batch
-        import torch
 
         # Build _N_SEEDS distinct probe prompts so we exercise the batch path.
         _PROBE_TEMPLATES = [
@@ -149,6 +157,13 @@ def _test_osm_load_and_eval() -> bool:
             except Exception as exc:
                 _mark(f"OSM_LOAD_{model_cfg['name'].upper().replace('-', '_')}", False, str(exc))
                 all_pass = False
+            finally:
+                # Unload immediately after testing — keeps peak VRAM at one
+                # model's footprint (~18 GB) rather than accumulating all four
+                # (~62 GB).  The production pipeline uses load_all_osm_models()
+                # which keeps all models resident for throughput.
+                unload_model(model_cfg["name"])
+
     except Exception as exc:
         _mark("OSM_LOAD_ALL", False, str(exc))
         all_pass = False

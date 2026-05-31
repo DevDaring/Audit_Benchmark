@@ -58,7 +58,7 @@ profiles:
         cpu:
           units: 4
         memory:
-          size: 16Gi
+          size: 64Gi
         storage:
           - size: 200Gi
         gpu:
@@ -83,7 +83,7 @@ deployment:
 
 # ── close old open deployments ────────────────────────────────────────────
 print("[deploy] Closing any leftover open deployments ...")
-for old in ['27070590', '27070564', '27070538']:
+for old in ['27070590', '27070564', '27070538', '27070733']:
     requests.delete(BASE + '/v1/deployments/' + old, headers=H, timeout=20)
 
 # ── 1. create deployment ──────────────────────────────────────────────────
