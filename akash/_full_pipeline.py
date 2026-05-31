@@ -1,8 +1,20 @@
 """
 Full pipeline:
   1. Upload .env to /workspace/mirage.env (before install, survives the chain)
-  2. Launch tmux: install.sh → cp .env → dry_run_gpu_cpu.py --n-seeds 2
-  3. Poll until DRY_RUN_DONE
+  2. Launch tmux:
+       install.sh
+       → git pull
+       → cp .env (HF token available for predownload)
+       → predownload_models.py  (download all 4 models to HF cache, no GPU)
+       → dry_run_gpu_cpu.py --n-seeds 2  (loads from cache, no network)
+  3. Poll until PIPELINE_DONE
+
+WHY predownload_models.py is here:
+  Without pre-downloading, HuggingFace downloads happen DURING the dry run
+  while the GPU is active.  Large model downloads (14-16 GB each) combined
+  with an active CUDA context cause host-level memory pressure on Akash
+  providers, which triggers node-level container eviction (OOM, exit 137).
+  Pre-downloading is pure disk I/O with no GPU activity — much safer.
 """
 import paramiko, sys, time
 from pathlib import Path
@@ -14,7 +26,7 @@ REMOTE_ENV_STAGE = "/workspace/mirage.env"          # staging path
 REMOTE_ENV_FINAL = "/workspace/Audit_Benchmark/Code/mirage/.env"  # runtime path
 DRY_LOG = "/workspace/full_pipeline.log"
 POLL = 30
-MAX_MIN = 60
+MAX_MIN = 90   # extended: predownload can take 10-15 min for ~42 GB
 
 
 def conn():
@@ -49,13 +61,23 @@ sp(f"    HF token lines: {hf.split()[-1]}")
 run(c, "tmux kill-session -t full 2>/dev/null; true")
 
 # ---- 3. Build chained command ----
-# Steps in tmux:
-#   a) Run install.sh (all packages)
-#   b) Copy .env from staging to runtime path
-#   c) Run 2-seed dry run
+# Steps in tmux (each step runs only if the previous succeeded):
+#   a) install.sh         — all Python packages
+#   b) INSTALL_OK marker  — sentinel so polling knows install finished
+#   c) git pull           — get latest code (in case we pushed fixes after launching)
+#   d) cp .env            — HF token must be available before predownload
+#   e) predownload_models — download all 4 OSM models to HF disk cache (no GPU)
+#   f) PREDOWNLOAD_OK     — sentinel so polling knows models are cached
+#   g) dry_run_gpu_cpu    — load models from cache, run 2-seed validation
+#   h) PIPELINE_DONE      — final sentinel (always written, success or fail)
 INSTALL   = "bash /workspace/Audit_Benchmark/akash/install.sh"
 GIT_PULL  = "git -C /workspace/Audit_Benchmark pull --ff-only origin main"
 COPY_ENV  = f"cp {REMOTE_ENV_STAGE} {REMOTE_ENV_FINAL}"
+PREDOWNLOAD = (
+    "cd /workspace/Audit_Benchmark && "
+    "PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage "
+    "python3 akash/predownload_models.py"
+)
 DRY = (
     "cd /workspace/Audit_Benchmark/Code/mirage && "
     "PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage "
@@ -66,6 +88,8 @@ CHAIN = (
     f" && echo INSTALL_OK >> {DRY_LOG}"
     f" && {GIT_PULL} 2>&1 | tee -a {DRY_LOG}"
     f" && {COPY_ENV}"
+    f" && {PREDOWNLOAD} 2>&1 | tee -a {DRY_LOG}"
+    f" && echo PREDOWNLOAD_OK >> {DRY_LOG}"
     f" && {DRY} 2>&1 | tee -a {DRY_LOG}"
     f"; echo PIPELINE_DONE >> {DRY_LOG}"
 )
@@ -81,6 +105,7 @@ sp(f"    Log: {DRY_LOG}\n")
 deadline = time.time() + MAX_MIN * 60
 polls = 0
 install_ok = False
+predown_ok = False
 
 while time.time() < deadline:
     time.sleep(POLL)
@@ -89,6 +114,7 @@ while time.time() < deadline:
         c2 = conn()
         done  = run(c2, f"grep -c PIPELINE_DONE {DRY_LOG} 2>/dev/null || echo 0")
         iok   = run(c2, f"grep -c INSTALL_OK {DRY_LOG} 2>/dev/null || echo 0")
+        pok   = run(c2, f"grep -c PREDOWNLOAD_OK {DRY_LOG} 2>/dev/null || echo 0")
         size  = run(c2, f"wc -c < {DRY_LOG} 2>/dev/null || echo 0")
         tail  = run(c2, f"tail -8 {DRY_LOG}")
         c2.close()
@@ -96,10 +122,15 @@ while time.time() < deadline:
         sp(f"[{polls*POLL}s] reconnect: {ex}"); continue
 
     if not install_ok and iok.strip().endswith("1"):
-        sp(f"  *** INSTALL_OK at {polls*POLL}s — .env copied, dry run starting ***")
+        sp(f"  *** INSTALL_OK at {polls*POLL}s — models pre-downloading ... ***")
         install_ok = True
 
-    sp(f"[{polls*POLL}s] log={size.split()[-1]}B INST={'Y' if install_ok else 'N'} DONE={done.split()[-1]}")
+    if not predown_ok and pok.strip().endswith("1"):
+        sp(f"  *** PREDOWNLOAD_OK at {polls*POLL}s — all models cached, dry run starting ***")
+        predown_ok = True
+
+    phase = "PREDOWNLOAD" if (install_ok and not predown_ok) else ("DRY_RUN" if predown_ok else "INSTALL")
+    sp(f"[{polls*POLL}s] log={size.split()[-1]}B phase={phase} DONE={done.split()[-1]}")
     for ln in tail.splitlines():
         sp("  " + ln)
 
