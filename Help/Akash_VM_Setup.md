@@ -1,8 +1,8 @@
 # Akash GPU VM Setup — MIRAGE Project
 ### Complete Field Guide: Deployment, Package Installation, Flash Attention, and Running Code
 
-*This document was written after working through every failure mode end-to-end.
-Every "Issue" section describes something that actually broke and how it was fixed.*
+*Written after working through every failure mode end-to-end on live deployments.
+Every "Issue" section describes something that actually broke, was debugged, and was fixed.*
 
 ---
 
@@ -15,17 +15,18 @@ Every "Issue" section describes something that actually broke and how it was fix
 6. [Installing Python Packages — The Right Way](#6-installing-python-packages--the-right-way)
 7. [Flash Attention — Compatibility and Installation](#7-flash-attention--compatibility-and-installation)
 8. [The Ephemeral Storage Problem](#8-the-ephemeral-storage-problem)
-9. [Uploading .env to the VM](#9-uploading-env-to-the-vm)
-10. [Running the Dry Run and GPU Pipeline](#10-running-the-dry-run-and-gpu-pipeline)
-11. [Scripts Reference](#11-scripts-reference)
-12. [Troubleshooting Index](#12-troubleshooting-index)
-13. [Cost Estimate](#13-cost-estimate)
+9. [Memory Management — The Most Confusing Part](#9-memory-management--the-most-confusing-part)
+10. [Uploading .env to the VM](#10-uploading-env-to-the-vm)
+11. [Running the Dry Run and GPU Pipeline](#11-running-the-dry-run-and-gpu-pipeline)
+12. [Scripts Reference](#12-scripts-reference)
+13. [Troubleshooting Index](#13-troubleshooting-index)
+14. [Cost Estimate](#14-cost-estimate)
 
 ---
 
 ## 1. What Akash Is
 
-Akash Network is a decentralised cloud marketplace. Providers (GPU node operators) bid on your deployment request. You accept the cheapest bid and pay in AKT (Akash token). The billing is per-block (~6 seconds per block, ~$2–5/hr for an A100).
+Akash Network is a decentralised cloud marketplace. Providers (GPU node operators) bid on your deployment request. You accept the cheapest bid and pay in AKT (Akash token). The billing is per-block (~6 seconds per block, ~$1.25–5/hr for an A100).
 
 Key difference from AWS: **you interact with the Akash Console REST API** rather than a VM console. Scripts in `akash/` automate the full flow.
 
@@ -155,9 +156,9 @@ profiles:
     mirage:
       resources:
         cpu:
-          units: "4"
+          units: 4
         memory:
-          size: 16Gi
+          size: 64Gi          # <-- CRITICAL: must be 64Gi, NOT 16Gi. See §9.
         storage:
           - size: 200Gi
         gpu:
@@ -165,8 +166,9 @@ profiles:
           attributes:
             vendor:
               nvidia:
+
   placement:
-    westcoast:
+    akash:
       pricing:
         mirage:
           denom: uakt
@@ -174,16 +176,16 @@ profiles:
 
 deployment:
   mirage:
-    westcoast:
+    akash:
       profile: mirage
       count: 1
 ```
 
-**What we learned about resource values:**
-- `cpu: "4"` worked. Higher values reduced the number of providers that could bid.
-- `memory: 16Gi` is sufficient for MIRAGE (models run on GPU not CPU RAM). Requesting more reduces bidders.
-- `storage: 200Gi` is plenty.
-- `gpu: units: 1` with just `vendor: nvidia:` (no model or RAM filter) gives the most bids.
+**Resource guidelines:**
+- `memory: 64Gi` — **mandatory for GPU model workloads**. See §9 for the full explanation of why 16Gi silently kills containers.
+- `cpu: 4` — sufficient; higher values reduce the number of providers that bid.
+- `storage: 200Gi` — enough for packages (~5 GB) + model downloads (~50 GB).
+- `gpu: units: 1` with just `vendor: nvidia:` (no model or RAM filter) — gives the most bids.
 
 ---
 
@@ -196,7 +198,7 @@ After lease is accepted, the container starts and runs the startup command:
 3. Configure and start SSH daemon (`/usr/sbin/sshd`)
 4. `git clone` or `git pull` the repo
 5. Write `vm_ready.txt`
-6. `tail -f /dev/null` — keeps PID 1 alive so container doesn't exit
+6. `tail -f /dev/null` — keeps PID 1 alive so container does not exit
 
 **SSH is available ~60–90 seconds after lease creation.**
 
@@ -215,9 +217,9 @@ apt-get install python3-pip        # installs Ubuntu's patched pip
 python3 -m pip install --upgrade pip  # this BREAKS python3 -m pip
 ```
 
-**Why:** Ubuntu 22.04's system `python3-pip` is a patched version. When you upgrade pip in-place via `pip install --upgrade pip`, the pip module is replaced in `/usr/local/lib/python3.10/dist-packages/pip/` but the system Python's module discovery breaks. Result: `python3 -m pip` silently fails — returns `No module named pip`.
+**Why:** Ubuntu 22.04's system `python3-pip` is a patched version. When you upgrade pip in-place, the pip module is replaced but system Python's module discovery breaks. Result: `python3 -m pip` silently fails with `No module named pip`.
 
-**The correct approach:** Bootstrap pip from `get-pip.py` FIRST, before any upgrades:
+**The correct approach:** Bootstrap pip from `get-pip.py` FIRST:
 ```bash
 # GOOD — always start with this
 apt-get install -y python3-dev       # dev headers, NOT python3-pip
@@ -227,19 +229,11 @@ python3 -m pip --version             # must succeed before proceeding
 python3 -m pip install setuptools wheel packaging ninja
 ```
 
-This guarantees `python3 -m pip` is always healthy.
-
 ### Issue 5: Packages installed but not importable
 
 **Symptom:** `pip install torch` reports success, but `python3 -c "import torch"` gives `ModuleNotFoundError`.
 
-**Cause:** There are often two Python executables:
-- `/usr/bin/python3` — system Python (what SSH shells use)
-- `/usr/local/bin/python3.10` — possibly installed separately
-
-When pip installs to one Python's site-packages, the other Python can't see them.
-
-**Fix:** Always use `python3 -m pip install` (not `pip3 install`). This guarantees packages go to the same Python that will run them. Verify with:
+**Fix:** Always use `python3 -m pip install` (not `pip3 install`). Verify:
 ```bash
 python3 -c "import sys; print(sys.executable, sys.path)"
 python3 -m pip show torch | grep Location
@@ -253,17 +247,12 @@ Both should point to the same location.
 ```bash
 python3 -c "import transformer_lens; print(transformer_lens.__version__)"
 ```
-fails because `transformer_lens==2.18.0` (the last v2 stable release) has **no `__version__` attribute**.
+fails because `transformer_lens==2.18.0` has **no `__version__` attribute**, causing `set -e` to abort.
 
-This causes `set -e` to abort the script before the remaining packages (python-dotenv, scipy, etc.) are installed.
-
-**Fix:** Never rely on `__version__` for packages that don't expose it:
+**Fix:**
 ```bash
-# BAD
-python3 -c "import transformer_lens; print('[install] transformer_lens', transformer_lens.__version__)"
-
-# GOOD
-python3 -c "import transformer_lens; print('[install] transformer_lens OK (v2.18.0 has no __version__ attr)')"
+# GOOD — use getattr with fallback
+python3 -c "import transformer_lens; ver = getattr(transformer_lens, '__version__', 'installed'); print('transformer_lens', ver)"
 ```
 
 ### Correct install order for MIRAGE
@@ -312,8 +301,6 @@ All of the above is in `akash/install.sh`.
 
 ## 7. Flash Attention — Compatibility and Installation
 
-Flash Attention is notoriously difficult to install. This section documents exactly what works.
-
 ### Compatibility Matrix (what actually works)
 
 | PyTorch | CUDA | Python | Flash Attn | ABI | Status |
@@ -325,7 +312,7 @@ Flash Attention is notoriously difficult to install. This section documents exac
 
 ### Why `cxx11abiFALSE` matters
 
-PyTorch wheels distributed via pip on Linux are compiled with the pre-C++11 ABI (`cxx11abiFALSE`). Flash Attention must be compiled with the **matching ABI**. The `cxx11abiTRUE` variant is only for PyTorch compiled from source.
+PyTorch wheels on Linux are compiled with the pre-C++11 ABI. Flash Attention must match. The `cxx11abiTRUE` variant is only for PyTorch compiled from source.
 
 ### Prebuilt wheel URL (fastest, most reliable)
 
@@ -336,24 +323,15 @@ v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_
 python3 -m pip install "$FLASH_WHL" --no-deps
 ```
 
-The `--no-deps` flag prevents pip from trying to install/upgrade torch to satisfy flash_attn's declared dependency, which would replace our pinned torch 2.6.0.
+The `--no-deps` flag prevents pip from replacing our pinned torch 2.6.0.
 
 ### Fallback: build from source
-
-Only use this if the prebuilt wheel fails (e.g. new CUDA version):
 
 ```bash
 MAX_JOBS=4 python3 -m pip install flash-attn --no-build-isolation
 ```
 
 Expect ~45–60 minutes compile time on the VM.
-
-### Verification
-
-```bash
-python3 -c "import flash_attn; print(flash_attn.__version__)"
-# Expected: 2.7.4.post1
-```
 
 ---
 
@@ -363,63 +341,225 @@ python3 -c "import flash_attn; print(flash_attn.__version__)"
 
 ### What happens
 
-Akash containers have **ephemeral storage only** (unless you explicitly request persistent storage with `class: beta3` in the SDL). The ephemeral filesystem is:
-- Alive while the container is running
-- **Wiped completely on container restart**
-
-The container's startup command (`git clone ...`) re-populates `/workspace/Audit_Benchmark` from GitHub on every restart. But installed Python packages in `/usr/local/lib/python3.10/dist-packages/` are wiped.
-
-### Why the container keeps restarting
-
-Observed restarts happen approximately 1–5 minutes after the last active workload (tmux session) finishes. The Akash provider appears to restart idle containers under certain conditions (exact policy unknown — could be memory pressure, health checks, or provider-side scheduling).
-
-**Evidence:**
-- `uptime` shows 134 days (HOST kernel) — the host is stable
-- `ps -p 1 -o etimes,comm` shows PID 1 (`tail -f /dev/null`) uptime of only 5 minutes — container restarted recently
-- `/workspace` contents are always: `Audit_Benchmark/` (re-cloned) + `vm_ready.txt` (re-written by startup.sh)
+Akash containers have **ephemeral storage only** by default. The filesystem is wiped on every container restart. The container's startup command re-clones the repo from GitHub, but installed Python packages are gone.
 
 ### The solution: chain everything in one tmux session
 
-**Never run install and then reconnect to run code.** Install + code must run in the same uninterrupted tmux session:
-
 ```bash
 # WRONG: two separate steps — restart can happen between them
-# Step 1: tmux "install" -> install.sh
-# --- container may restart here ---
-# Step 2: tmux "run" -> python3 dry_run.py   # packages are GONE
+# Step 1: bash install.sh
+# --- container may restart here, wiping all packages ---
+# Step 2: python3 dry_run.py   # ImportError: packages are GONE
 
-# CORRECT: one chained command
+# CORRECT: one chained command in a single tmux session
 tmux new-session -d -s pipeline \
-  'bash install.sh && cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env && cd /workspace/Audit_Benchmark/Code/mirage && python3 Dry_Run/dry_run_gpu_cpu.py --n-seeds 2; echo DONE'
+  'cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env \
+   && bash /workspace/Audit_Benchmark/akash/install.sh \
+   && git -C /workspace/Audit_Benchmark pull --ff-only origin main \
+   && cd /workspace/Audit_Benchmark/Code/mirage \
+   && python3 Dry_Run/dry_run_gpu_cpu.py --n-seeds 2; echo DONE'
 ```
 
-**The cp step** copies a pre-uploaded `.env` file from `/workspace/mirage.env` (a staging path not in the git repo) to the runtime path. The `.env` must be uploaded via SFTP before launching the tmux chain (see §9).
+This is what `akash/_full_pipeline.py` does. The `.env` copy happens first so the HF token is available for model downloads during install.
 
-### Persistent storage (better long-term fix)
+### Persistent storage (production fix)
 
-For production runs, add persistent storage to the SDL:
 ```yaml
 storage:
   - size: 200Gi       # ephemeral (root filesystem)
   - size: 100Gi       # persistent
     name: data
-    mount: /data       # mounted at /data, survives restarts
+    mount: /data
     class: beta3       # beta3 = persistent SSD on Akash
-```
-
-Then install packages to the persistent path:
-```bash
-python3 -m pip install --target /data/site-packages torch ...
-export PYTHONPATH=/data/site-packages:$PYTHONPATH
 ```
 
 Note: persistent storage costs extra and reduces the number of providers that will bid.
 
 ---
 
-## 9. Uploading .env to the VM
+## 9. Memory Management — The Most Confusing Part
 
-The `.env` file contains API keys and must never be committed to git. It must be uploaded to the VM after every container restart.
+> **This section exists because `free -h` lied to us and wasted hours of debugging.**
+
+### The `free -h` lie — critical to understand
+
+When you SSH into the container and run `free -h`, you will see something like:
+
+```
+               total        used        free      shared  buff/cache   available
+Mem:           2.0Ti        87Gi       1.2Ti       5.1Gi       687Gi       1.9Ti
+```
+
+**THIS IS WRONG. Your container does NOT have 2 TiB of RAM.**
+
+`free -h` reads `/proc/meminfo`, which is a global kernel interface showing the **entire host machine's RAM** — not your container's limit. It is completely blind to cgroup memory limits.
+
+### How to check your REAL memory limit
+
+```bash
+# cgroup v2 (most Akash providers)
+cat /sys/fs/cgroup/memory.max
+# Output: 68719476736 = 64 GiB  ← this is your ACTUAL limit
+
+# cgroup v2 — current usage
+cat /sys/fs/cgroup/memory.current
+# Output: 265740288 = ~253 MB   ← your actual usage
+```
+
+To convert bytes to GiB in Python:
+```python
+bytes_val = 68719476736
+print(f"{bytes_val / 1024**3:.1f} GiB")  # → 64.0 GiB
+```
+
+### What happens when the limit is too low (16 GiB)
+
+With `memory: 16Gi` in the SDL, these events unfold silently:
+
+1. Container boots, SSH works — all looks fine
+2. `free -h` shows 2 TiB — looks like plenty of RAM
+3. install.sh runs — packages install fine (~5 GB used)
+4. LLaMA-3.1-8B loads into GPU — also needs ~14 GB CPU RAM buffer during loading → **RAM spikes near 16 GB limit**
+5. Qwen2.5-7B starts loading → **cgroup OOM killer fires**
+6. Container receives SIGTERM, restarts silently
+7. All packages are wiped (ephemeral storage)
+
+**The user sees:** container restarting randomly with no error message. This is a known Akash limitation — [GitHub issue #246](https://github.com/akash-network/support/issues/246) is still open as of 2026. Akash tenants cannot see the pod-level exit code (137 = OOM); only the provider operator can see it via `kubectl describe pod`.
+
+### Why model loading uses CPU RAM even though the model goes to GPU
+
+HuggingFace `transformers` with `device_map="auto"` uses Big Model Inference:
+1. Creates model skeleton on PyTorch meta device (~0 RAM)
+2. Loads weights from disk → **allocates CPU RAM buffer** for each layer
+3. Dispatches layer to GPU → frees CPU buffer
+
+For a 7B model in bfloat16: 7B × 2 bytes = **14 GB of CPU RAM** temporarily allocated during loading, even though the final model lives in GPU VRAM.
+
+### Required RAM by model
+
+| Model | VRAM (bf16) | CPU RAM during loading |
+|---|---|---|
+| Llama-3.1-8B-Instruct | ~16 GB | ~14 GB peak |
+| Qwen2.5-7B-Instruct | ~14 GB | ~12 GB peak |
+| Gemma-2-2b-it | ~4 GB | ~4 GB peak |
+| Phi-4-mini-instruct | ~8 GB | ~7 GB peak |
+
+**Minimum safe container RAM:** largest model peak + OS + Python overhead = ~14 + 3 = **17 GB**. Use **64 GiB** to have a comfortable margin and never trigger OOM.
+
+> **First deployment used `memory: 16Gi` → OOM on every Qwen/Gemma load.
+> Changed to `memory: 64Gi` → stable. Always use 64Gi.**
+
+### Issue 7: Container restarts with no error during model loading
+
+**Symptoms:**
+- Container runs fine for 3–5 minutes, then restarts silently
+- `free -h` shows 2 TiB available — looks like no memory issue
+- Log file disappears after restart (ephemeral storage wiped)
+- Models that loaded previously cannot be found after restart
+
+**Diagnosis checklist:**
+```bash
+# 1. Check your REAL cgroup memory limit
+cat /sys/fs/cgroup/memory.max
+# If this shows < 68719476736 (64 GiB), you have too little RAM allocated in SDL
+
+# 2. Check current memory usage
+cat /sys/fs/cgroup/memory.current
+
+# 3. Check how long container has been alive (PID 1 uptime in seconds)
+ps -p 1 -o etimes=
+# If this is very small (< 300s) and you expected it to be running for hours,
+# the container was restarted recently
+
+# 4. Check host load (high load = host node is overloaded, may cause node-level eviction)
+cat /proc/loadavg
+# If load > 8.0, the host is under heavy load from many tenants
+```
+
+**Root cause determination:**
+
+| What you see | Root cause | Fix |
+|---|---|---|
+| `memory.max` < 17 GB | Container OOM (cgroup limit too low) | Increase `memory:` in SDL to `64Gi` and redeploy |
+| `memory.max` = 64 GB but `memory.current` < 1 GB at restart | Node-level eviction (host OOM) | Reduce model size (see §9 below) or get a different provider |
+| Load average > 8.0 | Provider node overloaded by other tenants | Wait for off-peak time or deploy to a different provider |
+
+### Issue 8: Node-level eviction even with 64 GiB container RAM
+
+**What happens:** Even with 64 GiB cgroup limit and only 300 MB used in the container, the host node's overall memory (including GPU kernel allocations from ALL tenants) runs low. The Kubernetes kubelet evicts our pod to reclaim resources for the node.
+
+**Why GPU model loading causes host-level pressure:**
+When a model loads onto the A100, the CUDA driver allocates **pinned memory** (locked physical pages bridging CPU and GPU memory). These allocations happen at the **kernel level** and are:
+- NOT counted in your container's cgroup memory usage
+- Counted against the **host node's total physical memory**
+- Contributed by ALL tenants' GPU workloads on the same server
+
+On an overloaded Akash provider node (10+ load average), multiple tenants running GPU models simultaneously can exhaust the host's pinned memory, causing the kubelet to evict pods.
+
+**The fix — two complementary approaches:**
+
+**Approach A: Reduce individual model size (implemented in MIRAGE)**
+
+We replaced `google/gemma-2-9b-it` (9B params, ~18 GB VRAM) with `google/gemma-2-2b-it` (2B params, ~4 GB VRAM). Same Gemma-2 architecture, same `-it` instruction-tuned variant, same TransformerLens compatibility. Total VRAM across all 4 models dropped from ~56 GB to ~42 GB, and CPU RAM peaks dropped proportionally.
+
+```
+Before: Llama-8B(16) + Qwen-7B(14) + Gemma-9B(18) + Phi-4mini(8) = ~56 GB VRAM
+After:  Llama-8B(16) + Qwen-7B(14) + Gemma-2B(4)  + Phi-4mini(8) = ~42 GB VRAM
+```
+
+**Approach B: Sequential model loading (load → test → unload → next)**
+
+Instead of keeping all 4 models in VRAM simultaneously (cumulative ~42 GB), the dry run now loads one model, tests it, unloads it, then loads the next. Peak VRAM at any time = largest single model (~16 GB), not the sum.
+
+```python
+# dry_run_gpu_cpu.py — after each model test:
+finally:
+    unload_model(model_cfg["name"])   # frees VRAM + forces GPU cache clear
+```
+
+This is implemented in `Dry_Run/dry_run_gpu_cpu.py`. The production `load_all_osm_models()` still uses the keep-all strategy for throughput once models are cached.
+
+### Issue 9: Accumulation of models in VRAM (keep-all strategy in dry run)
+
+**Original strategy:** `load_all_osm_models()` loads all 4 models and keeps them in VRAM.
+
+| Time | Action | VRAM used |
+|---|---|---|
+| t=0 | Load LLaMA-8B | 16 GB |
+| t=1 | Load Qwen-7B (LLaMA still in VRAM) | 30 GB |
+| t=2 | Load Gemma-9B (both still in VRAM) | 48 GB ← triggers GPU memory pressure |
+| t=3 | Load Phi-mini (all still in VRAM) | 56 GB |
+
+**Fixed strategy (dry run only):** sequential load/unload per model. Peak VRAM = 16 GB at any time.
+
+The production pipeline uses keep-all because it needs all models available for each probe. But during dry run validation, sequential is both safer and faster.
+
+### Quick reference — what to check when container restarts unexpectedly
+
+```bash
+# Run these immediately after SSH-ing into a restarted container:
+
+echo "=== Container uptime ==="
+ps -p 1 -o etimes=
+
+echo "=== Real RAM limit ==="
+python3 -c "
+limit = int(open('/sys/fs/cgroup/memory.max').read())
+used = int(open('/sys/fs/cgroup/memory.current').read())
+print(f'Limit: {limit/1024**3:.1f} GiB')
+print(f'Used:  {used/1024**3:.1f} GiB')
+print(f'free -h would show: WRONG (it shows host RAM, not this)')
+"
+
+echo "=== Host load ==="
+cat /proc/loadavg
+```
+
+---
+
+## 10. Uploading .env to the VM
+
+The `.env` file contains API keys and must never be committed to git.
 
 ### Upload via SFTP (implemented in `akash/_full_pipeline.py`)
 
@@ -428,70 +568,27 @@ import paramiko
 from pathlib import Path
 
 LOCAL_ENV = Path("Code/mirage/.env")
-
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(VM_HOST, port=VM_PORT, username="root", password="MirageVM2026!",
                timeout=30, banner_timeout=60)
-
 sftp = client.open_sftp()
-sftp.put(str(LOCAL_ENV), "/workspace/mirage.env")   # staging path
+sftp.put(str(LOCAL_ENV), "/workspace/mirage.env")   # staging path outside git repo
 sftp.close()
 ```
 
-Then in the tmux chain, copy it to the runtime path:
+Then in the tmux chain, copy to runtime path:
 ```bash
 cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env
 ```
 
-**Why the staging path?** The runtime path `/workspace/Audit_Benchmark/Code/mirage/.env` is inside the git repo. After a container restart and `git pull`, git might overwrite this file (if `.env` is accidentally tracked). The staging path `/workspace/mirage.env` is outside the repo and safer.
-
-### Alternative: encode .env in the SDL environment variable
-
-You can base64-encode the entire `.env` and pass it in the SDL `env:` block:
-```bash
-# On local machine
-python3 -c "import base64,pathlib; print(base64.b64encode(pathlib.Path('Code/mirage/.env').read_bytes()).decode())"
-```
-
-Then in SDL:
-```yaml
-env:
-  - MIRAGE_ENV_B64=<base64_string>
-```
-
-And in startup.sh:
-```bash
-echo "$MIRAGE_ENV_B64" | base64 -d > /workspace/Audit_Benchmark/Code/mirage/.env
-```
-
-**Caveat:** This makes the `.env` contents visible in the SDL YAML which is submitted to the Akash network. Treat this with caution for production API keys.
+**Upload .env BEFORE running install.sh** so that HuggingFace token is available for model downloads during installation.
 
 ---
 
-## 10. Running the Dry Run and GPU Pipeline
+## 11. Running the Dry Run and GPU Pipeline
 
-### Dry run with 2 seeds (pipeline validation)
-
-```bash
-# On VM (inside tmux):
-cd /workspace/Audit_Benchmark/Code/mirage
-PYTHONPATH=/workspace/Audit_Benchmark/Code/mirage \
-python3 Dry_Run/dry_run_gpu_cpu.py --n-seeds 2
-```
-
-The `--n-seeds 2` flag (added in our parallelism update) processes exactly 2 probe seeds through the full GPU pipeline:
-1. ENV_KEYS — all API keys present
-2. PLATFORM_LINUX — Linux x86_64 required for flash-attention
-3. GPU_AVAILABLE — CUDA and A100 detected
-4. TRANSFORMER_LENS_IMPORT — TL 2.18.0
-5. NNSIGHT_IMPORT — nnsight 0.7.0
-6. FLASH_ATTENTION_IMPORT — flash_attn 2.7.4.post1
-7. OSM_BATCH_INFERENCE — loads all 4 OSM models, runs batched forward pass on 2 seeds
-8. CDVA_PATCHING — activation patching with TransformerLens/nnsight
-9. OUTLINES_CONSTRAINED_JSON — constrained JSON decoding
-
-### Full pipeline (from local machine via `akash/_full_pipeline.py`)
+### Full pipeline (from local machine)
 
 ```bash
 # From repo root:
@@ -501,155 +598,172 @@ python akash/_full_pipeline.py
 This script:
 1. Uploads `.env` to `/workspace/mirage.env` via SFTP
 2. Kills any stale tmux sessions
-3. Launches: `install.sh && cp .env && dry_run_gpu_cpu.py --n-seeds 2`
-4. Polls every 30 seconds (reconnecting each poll)
-5. Prints final result
+3. Launches chained tmux command:
+   - `cp .env` → staging to runtime path
+   - `install.sh` → all packages
+   - `git pull` → ensure latest code
+   - `dry_run_gpu_cpu.py --n-seeds 2`
+4. Polls every 30 seconds (reconnects each poll to avoid SSH timeout)
+5. Prints final PASS/FAIL result
 
-### Monitoring a running session
-
-```bash
-# SSH in:
-ssh root@provider.a100.dsm.val.akash.pub -p 30594
-# Password: MirageVM2026!
-
-# Attach to running tmux:
-tmux attach -t full
-
-# Or tail the log:
-tail -f /workspace/full_pipeline.log
-```
-
-### What "PASS" looks like in the dry run
+### Dry run checks (what PASS looks like)
 
 ```
 INFO:__main__:=== GPU_CPU Dry Run (run_id=..., n_seeds=2) ===
 INFO:__main__:  [PASS] ENV_KEYS
 INFO:__main__:  [PASS] PLATFORM_LINUX  OS: Linux
 INFO:__main__:  [PASS] GPU_AVAILABLE  NVIDIA A100-SXM4-80GB | 79.3 GB
-INFO:__main__:  [PASS] TRANSFORMER_LENS_IMPORT  v... (TL has no __version__)
+INFO:__main__:  [PASS] TRANSFORMER_LENS_IMPORT  installed (v2.18.0+)
 INFO:__main__:  [PASS] NNSIGHT_IMPORT  v0.7.0
 INFO:__main__:  [PASS] FLASH_ATTENTION_IMPORT  v2.7.4.post1
-INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_LLAMA_3_1_8B_INSTRUCT  2 responses, ...
-...
+INFO:__main__:  [PASS] OSM_LOAD_LLAMA_3.1_8B_INSTRUCT  attn=flash_attention_2
+INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_LLAMA_3.1_8B_INSTRUCT  2 responses, ...
+INFO:__main__:  [PASS] OSM_LOAD_QWEN2.5_7B_INSTRUCT  attn=flash_attention_2
+INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_QWEN2.5_7B_INSTRUCT  2 responses, ...
+INFO:__main__:  [PASS] OSM_LOAD_GEMMA.2.2B.IT  attn=flash_attention_2
+INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_GEMMA.2.2B.IT  2 responses, ...
+INFO:__main__:  [PASS] OSM_LOAD_PHI.4.MINI.INSTRUCT  attn=flash_attention_2
+INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_PHI.4.MINI.INSTRUCT  2 responses, ...
+INFO:__main__:  [PASS] CDVA_PATCHING_ONE_PAIR  delta_logit=0.xxxx
+INFO:__main__:  [PASS] OUTLINES_CONSTRAINED_JSON  {"answer": ...}
+```
+
+### Monitoring a running session
+
+```bash
+ssh root@provider.a100.dsm.val.akash.pub -p 32355
+# Password: MirageVM2026!
+
+tmux attach -t full          # attach to pipeline session
+tail -f /workspace/full_pipeline.log   # tail the log
 ```
 
 ---
 
-## 11. Scripts Reference
+## 12. Scripts Reference
 
 All scripts live in `akash/`. Run from repo root.
 
 | Script | Purpose |
 |---|---|
 | `_deploy_mirage.py` | Full Akash Console API deployment: SDL → bids → lease → SSH poll |
-| `_full_pipeline.py` | **Primary entry point.** Upload .env + chain install + dry run |
-| `_install_and_dryrun.py` | Like `_full_pipeline.py` but without the .env staging step |
+| `_full_pipeline.py` | **Primary entry point.** Upload .env + chain install + git pull + dry run |
+| `predownload_models.py` | Pre-downloads all 4 OSM models to HF cache (called from install.sh) |
 | `_poll_pipeline.py` | Poll `/workspace/full_pipeline.log` until PIPELINE_DONE |
-| `_reinstall.py` | Re-run install.sh on running VM (uses get-pip.py bootstrap) |
-| `_quick_check.py` | Fast check: is VM reachable? tmux sessions? workspace contents? |
-| `_diagnose2.py` | Deep diagnostics: PID 1 uptime, memory, storage, dist-packages |
+| `_reinstall.py` | Re-run install.sh on running VM |
+| `_quick_check.py` | Fast check: VM reachable? tmux sessions? workspace contents? |
+| `_diagnose2.py` | Deep diagnostics: PID 1 uptime, cgroup memory, disk, host load |
 | `_check_pkgs.py` | Verify all required packages via a Python script on VM |
-| `install.sh` | Package installer (runs on VM). See §6 and §7 for details. |
+| `install.sh` | Package installer (runs on VM). See §6 and §7. |
 | `vm_ssh.txt` | VM host/port/dseq (gitignored, updated per deployment) |
 
-### Environment variables used by scripts
+### Current active VM
 
-| Var | Default | Description |
-|---|---|---|
-| `AKASH_VM_HOST` | `provider.a100.dsm.val.akash.pub` | SSH host |
-| `AKASH_VM_PORT` | `30594` | SSH port |
-| `AKASH_VM_USER` | `root` | SSH username |
-| `AKASH_VM_PASSWORD` | `MirageVM2026!` | SSH password |
-
-Set as PowerShell env vars before running:
-```powershell
-$env:AKASH_VM_HOST = "provider.a100.dsm.val.akash.pub"
-$env:AKASH_VM_PORT = "30594"
-$env:AKASH_VM_PASSWORD = "MirageVM2026!"
-python akash/_full_pipeline.py
-```
+| Field | Value |
+|---|---|
+| DSEQ | `27071620` |
+| SSH | `ssh root@provider.a100.dsm.val.akash.pub -p 32355` |
+| Password | `MirageVM2026!` |
+| RAM allocated | **64 GiB** (cgroup-verified: 68,719,476,736 bytes) |
+| GPU | NVIDIA A100-SXM4-80GB, 79.3 GB VRAM |
+| Cost | ~$1.25/hr |
 
 ---
 
-## 12. Troubleshooting Index
+## 13. Troubleshooting Index
+
+### Memory / container restart issues (most common)
+
+| Symptom | First thing to check | Root cause | Fix |
+|---|---|---|---|
+| Container restarts every few minutes during model loading | `cat /sys/fs/cgroup/memory.max` | SDL `memory:` too low (e.g. 16Gi) — cgroup OOM | Redeploy with `memory: 64Gi` |
+| `free -h` shows 2 TiB but container still OOMs | Don't trust `free -h` in containers | `free` reads host RAM, not cgroup limit | Check `/sys/fs/cgroup/memory.max` instead |
+| Container restarts even with 64 GiB cgroup, only 300 MB used | `cat /proc/loadavg` | Node-level eviction (host overloaded) | Reduce model sizes; switch to sequential load/unload |
+| Log file disappears after restart | Ephemeral storage wiped | Container restarted → `/workspace` cleared | Use chained tmux session (see §8) |
+| `memory.max` shows correct limit but OOM still happens | Check GPU kernel memory | Pinned GPU memory not tracked by cgroup | Reduce peak VRAM by using smaller models |
 
 ### Deployment issues
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | No bids after 5 min | Price too low / GPU over-constrained | Raise `amount` to 10 000 000; remove `ram:`, `host:`, `signedBy:` |
-| `{"code":"invalid_type","path":["manifest"]}` | Passing SDL text as manifest | Extract `data.manifest` from POST /v1/deployments response; pass that blob |
+| `{"code":"invalid_type","path":["manifest"]}` | Passing SDL text as manifest | Extract `data.manifest` from POST /v1/deployments response |
 | SSH connection refused | Container still booting | Wait 2–3 min after lease accepted |
-| Authentication failed | Wrong SSH key / password | Use password auth with `MirageVM2026!`; set `PasswordAuthentication yes` in sshd_config |
 
 ### Package installation issues
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `No module named pip` | Ubuntu apt pip upgraded in-place | Bootstrap from `get-pip.py` instead (see §6) |
-| `import torch` fails after install | pip installed to different Python | Always use `python3 -m pip`, verify with `python3 -m pip show torch` |
-| `flash_attn` compile fails | Wrong ABI, torch, or CUDA version | Use prebuilt wheel for cp310+cu124+torch2.6+cxx11abiFALSE (see §7) |
-| `transformer_lens.__version__` AttributeError | TL 2.18.0 has no `__version__` | Change verification to `print("OK")` instead of `print(.__version__)` |
-| `set -e` aborts install mid-way | Any verification command exits non-zero | Check ALL `python3 -c` verification lines; use `|| true` for known-OK cases |
+| `import torch` fails after install | pip installed to different Python | Always use `python3 -m pip` |
+| `flash_attn` compile fails | Wrong ABI, torch, or CUDA version | Use prebuilt wheel for cp310+cu124+torch2.6+cxx11abiFALSE |
+| `transformer_lens.__version__` AttributeError | TL 2.18.0 has no `__version__` | Use `getattr(tl, '__version__', 'installed')` |
+| `set -e` aborts install mid-way | Verification command exits non-zero | Check ALL verification lines; use `getattr` for `__version__` checks |
 
 ### Runtime issues
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `HUGGINGFACE_TOKEN` missing | `.env` not on VM (wiped by restart) | Upload via SFTP before starting pipeline; see §9 |
-| Packages gone after reconnect | Akash container restarted | Chain install+code in single tmux session; see §8 |
-| `ModuleNotFoundError: dotenv` | Install exited early (transformer_lens fix not applied) | Apply `__version__` fix to install.sh; see Issue 6 |
-| OOM during CDVA patching | TL + HF model both in VRAM | Set threshold to 1.0× in `cdva_patching.py` (already fixed for 80 GB) |
-| Batch inference gives empty output | `padding_side` not set | Ensure `tokenizer.padding_side = "left"` before batch tokenization |
+| `HUGGINGFACE_TOKEN` missing | `.env` not on VM | Upload via SFTP BEFORE launching install chain; see §10 |
+| Packages gone after reconnect | Container restarted | Chain install+code in single tmux session; see §8 |
+| `ModuleNotFoundError: dotenv` | Install exited early | Apply `__version__` fix to install.sh |
+| OOM during CDVA patching | TL + HF model both in VRAM | Set threshold to 1.0× in `cdva_patching.py` |
 
 ### SSH / connectivity issues
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `SSHException: SSH session not active` | Paramiko session timed out during long sleep | Reconnect before each poll: `client = conn()` at the start of every loop iteration |
-| `TimeoutError: [WinError 10060]` | Container temporarily unreachable | Wait 60 s and retry; Akash providers occasionally have brief network blips |
-| `UnicodeEncodeError` printing VM output | Windows cp1252 console + pip progress bars | Wrap every `print()` in a try/except that falls back to `encode("ascii", errors="replace")` |
+| `SSHException: SSH session not active` | Paramiko session timed out | Reconnect before each poll iteration |
+| `UnicodeEncodeError` printing VM output | Windows cp1252 + pip progress bars | Wrap print() with `.encode("ascii", errors="replace")` |
 
 ---
 
-## 13. Cost Estimate
+## 14. Cost Estimate
 
-| Phase | Duration | Cost at ~$3/hr |
+| Phase | Duration | Cost at ~$1.25/hr |
 |---|---|---|
-| Install + 2-seed dry run | ~30 min | ~$1.50 |
-| Full GPU behavioral eval (4 OSM models, full dataset) | ~8–12 hr | ~$24–$36 |
-| CDVA patching (4 models) | ~4–6 hr | ~$12–$18 |
-| CPU-only API eval | runs in parallel on separate machine | — |
-| **Total (approximate)** | **~15–20 hr** | **~$45–$65** |
+| Install + 2-seed dry run | ~10 min | ~$0.21 |
+| Full GPU behavioral eval (4 OSM models, full dataset) | ~6–10 hr | ~$7.50–$12.50 |
+| CDVA patching (4 models) | ~3–5 hr | ~$3.75–$6.25 |
+| CPU-only API eval | runs on separate machine | — |
+| **Total (approximate)** | **~10–15 hr** | **~$12–$19** |
 
-**Close the deployment when done to stop billing:**
-```bash
-# Via Akash Console UI, or API:
-DELETE https://console-api.akash.network/v1/deployments/{dseq}
+**Close the deployment when done:**
+```python
+import requests
+requests.delete("https://console-api.akash.network/v1/deployments/27071620",
+                headers={"x-api-key": AKASH_API_KEY})
 ```
 
 ---
 
-## Appendix: Version Pins That Are Known to Work
+## Appendix A: Version Pins That Are Known to Work
 
 ```
 Python:           3.10.12  (system, Ubuntu 22.04 in nvidia/cuda:12.4.1 image)
 CUDA:             12.4.1
 torch:            2.6.0+cu124
-torchvision:      (latest matching)
 flash_attn:       2.7.4.post1  (prebuilt wheel, cxx11abiFALSE)
 transformer_lens: 2.18.0
 nnsight:          0.7.0
 transformers:     4.57.6
 accelerate:       1.13.0
 outlines:         (latest)
-pandas:           2.0.3  (pinned by transformer_lens)
-numpy:            1.26.4 (pinned by transformer_lens)
+pandas:           2.0.3
+numpy:            1.26.4
 python-dotenv:    1.2.2
 ```
 
-GPU achieved: **NVIDIA A100-SXM4-80GB, 79.3 GB VRAM**
-DSEQ of working deployment: `27070733`
-Provider: `provider.a100.dsm.val.akash.pub`
-SSH port: `30594`
-Password: `MirageVM2026!`
+## Appendix B: OSM Model Stack (confirmed working on A100-SXM4-80GB)
+
+| Slot | Model | Params | VRAM (bf16) | Patching lib | Status |
+|---|---|---|---|---|---|
+| OSM-1 | `meta-llama/Llama-3.1-8B-Instruct` | 8B | ~16 GB | TransformerLens | ✅ Confirmed |
+| OSM-2 | `Qwen/Qwen2.5-7B-Instruct` | 7B | ~14 GB | nnsight | ✅ Confirmed |
+| OSM-3 | `google/gemma-2-2b-it` | 2B | ~4 GB | TransformerLens | ✅ Replaced from 9B |
+| OSM-4 | `microsoft/Phi-4-mini-instruct` | 3.8B | ~8 GB | nnsight | Pending test |
+
+**Why Gemma-2-9B was replaced with Gemma-2-2B:**
+The 9B model caused node-level container evictions on Akash providers during loading due to high GPU pinned memory pressure (~18 GB VRAM peak). Gemma-2-2B uses the identical architecture (same TransformerLens hooks, same `-it` instruction format) with 4× less memory. Research coverage of the Gemma model family is preserved.
+
+**Total VRAM across all 4 models:** ~42 GB (down from ~56 GB). All fit comfortably on one A100-80GB.
