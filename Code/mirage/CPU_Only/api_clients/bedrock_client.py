@@ -36,7 +36,12 @@ _OPENROUTER_MODEL_MAP = {
 }
 
 
-def _call_bedrock(model_id: str, messages: list[dict], max_tokens: int) -> str | None:
+def _call_bedrock(
+    model_id: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0.0,
+) -> str | None:
     """
     Call AWS Bedrock via the Converse API (model-agnostic).
     Guardrails are intentionally not attached — bias-audit benchmarks contain
@@ -61,11 +66,15 @@ def _call_bedrock(model_id: str, messages: list[dict], max_tokens: int) -> str |
             for m in messages if m.get("role") != "system"
         ]
 
+        inference_cfg: dict = {"maxTokens": max_tokens}
+        if temperature > 0.0:
+            inference_cfg["temperature"] = temperature
+
         response = client.converse(
             modelId=model_id,
             system=[{"text": system_text}],
             messages=converse_msgs,
-            inferenceConfig={"maxTokens": max_tokens},
+            inferenceConfig=inference_cfg,
             # No guardrailConfig — guardrails are opt-in; omitting means no filtering
         )
         return response["output"]["message"]["content"][0]["text"]
@@ -74,7 +83,13 @@ def _call_bedrock(model_id: str, messages: list[dict], max_tokens: int) -> str |
         return None
 
 
-def _call_openrouter(model_id: str, messages: list[dict], key: str, max_tokens: int) -> str | None:
+def _call_openrouter(
+    model_id: str,
+    messages: list[dict],
+    key: str,
+    max_tokens: int,
+    temperature: float = 0.0,
+) -> str | None:
     """Call OpenRouter as fallback. Returns text or None."""
     try:
         from openai import OpenAI
@@ -86,6 +101,7 @@ def _call_openrouter(model_id: str, messages: list[dict], key: str, max_tokens: 
             messages=messages,
             response_format={"type": "json_object"},
             max_tokens=max_tokens,
+            temperature=temperature,
             timeout=_TIMEOUT,
         )
         return response.choices[0].message.content or ""
@@ -98,6 +114,7 @@ def call_bedrock_with_fallback(
     model_id: str,
     messages: list[dict],
     max_tokens: int = 256,
+    temperature: float = 0.0,
 ) -> dict[str, Any]:
     """
     Call Bedrock with OpenRouter fallback per spec Section 4.2.
@@ -115,7 +132,7 @@ def call_bedrock_with_fallback(
     for _ in range(2):
         attempt_count += 1
         t0 = time.monotonic()
-        raw = _call_bedrock(model_id, messages, max_tokens)
+        raw = _call_bedrock(model_id, messages, max_tokens, temperature=temperature)
         if raw is not None:
             return {
                 "raw_response": raw,
@@ -135,7 +152,7 @@ def call_bedrock_with_fallback(
         key_index = _or_idx % len(OPENROUTER_KEYS)
         _or_idx += 1
         t0 = time.monotonic()
-        raw = _call_openrouter(model_id, messages, key, max_tokens)
+        raw = _call_openrouter(model_id, messages, key, max_tokens, temperature=temperature)
         if raw is not None:
             return {
                 "raw_response": raw,

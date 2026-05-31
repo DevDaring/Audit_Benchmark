@@ -38,19 +38,28 @@ class _MistralRoundRobin:
 _rr = _MistralRoundRobin()
 
 
-def _call_mistral(key: str, model_name: str, messages: list[dict], max_tokens: int) -> str | None:
+def _call_mistral(
+    key: str,
+    model_name: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0.0,
+) -> str | None:
     """Single Mistral API call. Returns text or None."""
     try:
         from mistralai.client import Mistral  # type: ignore
 
         client = Mistral(api_key=key)
-        response = client.chat.complete(
-            model=model_name,
-            messages=messages,
-            response_format={"type": "json_object"},
-            max_tokens=max_tokens,
-            safe_prompt=False,  # do not inject Mistral's safety preamble
-        )
+        call_kwargs: dict = {
+            "model": model_name,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+            "max_tokens": max_tokens,
+            "safe_prompt": False,  # do not inject Mistral's safety preamble
+        }
+        if temperature > 0.0:
+            call_kwargs["temperature"] = temperature
+        response = client.chat.complete(**call_kwargs)
         return response.choices[0].message.content or ""
     except Exception as exc:
         logger.warning("Mistral call failed: %s", exc)
@@ -61,6 +70,7 @@ def call_mistral_with_roundrobin(
     messages: list[dict],
     max_tokens: int = 256,
     model_name: str | None = None,
+    temperature: float = 0.0,
 ) -> dict[str, Any]:
     """
     Call Mistral with round-robin key rotation.
@@ -75,7 +85,7 @@ def call_mistral_with_roundrobin(
     for _ in range(len(MISTRAL_KEYS) * _MAX_ATTEMPTS_PER_KEY):
         key, key_index = _rr.next()
         attempt_count += 1
-        raw = _call_mistral(key, model_name, messages, max_tokens)
+        raw = _call_mistral(key, model_name, messages, max_tokens, temperature=temperature)
         if raw is not None:
             return {
                 "raw_response": raw,

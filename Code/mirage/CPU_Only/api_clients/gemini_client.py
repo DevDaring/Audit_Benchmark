@@ -39,7 +39,13 @@ class _GeminiRoundRobin:
 _rr = _GeminiRoundRobin()
 
 
-def _call_gemini(key: str, model_name: str, messages: list[dict], max_tokens: int) -> str | None:
+def _call_gemini(
+    key: str,
+    model_name: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0.0,
+) -> str | None:
     """
     Single Gemini API call with safety filters fully disabled.
     Bias-audit prompts contain stereotyped language by design; BLOCK_NONE
@@ -68,13 +74,17 @@ def _call_gemini(key: str, model_name: str, messages: list[dict], max_tokens: in
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
 
+        gen_cfg_kwargs: dict = {
+            "response_mime_type": "application/json",
+            "max_output_tokens": max_tokens,
+        }
+        if temperature > 0.0:
+            gen_cfg_kwargs["temperature"] = temperature
+
         model = genai.GenerativeModel(
             model_name=model_name,
             system_instruction=system_instruction,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=max_tokens,
-            ),
+            generation_config=genai.GenerationConfig(**gen_cfg_kwargs),
         )
         response = model.generate_content(user_text, safety_settings=safety_settings)
         return response.text
@@ -87,6 +97,7 @@ def call_gemini_with_roundrobin(
     messages: list[dict],
     max_tokens: int = 256,
     model_name: str | None = None,
+    temperature: float = 0.0,
 ) -> dict[str, Any]:
     """
     Call Gemini with round-robin key rotation.
@@ -106,7 +117,7 @@ def call_gemini_with_roundrobin(
     for _ in range(len(GEMINI_KEYS) * _MAX_ATTEMPTS_PER_KEY):
         key, key_index = _rr.next()
         attempt_count += 1
-        raw = _call_gemini(key, model_name, messages, max_tokens)
+        raw = _call_gemini(key, model_name, messages, max_tokens, temperature=temperature)
         if raw is not None:
             return {
                 "raw_response": raw,

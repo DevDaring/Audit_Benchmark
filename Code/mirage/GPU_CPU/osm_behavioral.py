@@ -127,10 +127,19 @@ def evaluate_osm_model(
 
     for i, (_, prow) in enumerate(pentad_df.iterrows()):
         prompt_id = prow["prompt_id"]
+        slot = prow.get("slot", "")
+
+        # FM4 variance pass (sample_index > 0) must run on slot-a only.
+        # Running it on all slots would multiply GPU work by ~12x and produce
+        # variance data for slots that are not scored under FM4.
+        if sample_index > 0 and slot != "a":
+            continue
+
         prompt_text = str(prow.get("prompt_text", ""))
         if not prompt_text.strip():
             continue
 
+        gold_answer = str(prow.get("gold_answer", ""))
         formatted = _build_prompt(_SYSTEM_PROMPT, prompt_text, tokenizer)
         t_start = time.monotonic()
 
@@ -170,8 +179,9 @@ def evaluate_osm_model(
                 "seed_category": prow.get("seed_category", ""),
                 "seed_subcategory": prow.get("seed_subcategory", ""),
                 "prompt_id": prompt_id,
-                "slot": prow.get("slot", ""),
+                "slot": slot,
                 "subvariant": prow.get("subvariant", ""),
+                "gold_answer": gold_answer,
                 "model_name": model_name,
                 "model_provider": model_provider,
                 "model_version": model_version,

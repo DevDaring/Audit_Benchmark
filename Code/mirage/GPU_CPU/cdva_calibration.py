@@ -23,6 +23,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, SEEDS_DIR, ensure_dirs
+from CPU_Only.scoring import _answers_match
 
 logger = logging.getLogger(__name__)
 
@@ -33,36 +34,57 @@ _CANDIDATE_TAUS = np.linspace(0.1, 0.9, 17).tolist()
 def _behavioral_pass(behavioral_df: pd.DataFrame, seed_id: str, model_name: str) -> bool:
     """
     Compute MIRAGE-B behavioral pass for a seed x model.
-    Returns True if all behavioral criteria are met.
+
+    Uses the same gold-answer correctness logic as production scoring.py
+    (_answers_match) so that tau calibration is consistent with the scoring
+    that will be applied to the main results.
     """
     rows = behavioral_df[
-        (behavioral_df["seed_id"] == seed_id) & (behavioral_df["model_name"] == model_name)
+        (behavioral_df["seed_id"] == seed_id)
+        & (behavioral_df["model_name"] == model_name)
+        & (behavioral_df["sample_index"] == 0)
     ]
     if rows.empty:
         return False
 
+    # Retrieve gold_answer for this seed
+    gold = ""
+    if "gold_answer" in rows.columns:
+        gold_vals = rows["gold_answer"].dropna().unique()
+        if len(gold_vals) > 0:
+            gold = str(gold_vals[0])
+
     def _correct(slot: str, subvariant: str) -> bool:
-        r = rows[(rows["slot"] == slot) & (rows["subvariant"] == subvariant)]
-        return len(r) > 0 and r.iloc[0]["success_flag"] and bool(r.iloc[0]["parsed_answer"])
+        r = rows[
+            (rows["slot"] == slot)
+            & (rows["subvariant"] == subvariant)
+            & (rows["success_flag"] == True)  # noqa: E712
+        ]
+        if r.empty:
+            return False
+        return _answers_match(str(r.iloc[0]["parsed_answer"]), gold)
 
     slot_a_ok = _correct("a", "surface")
     slot_b_ok = _correct("b", "iso_control")
 
-    # Behavioral stability on (c): majority vote constant
-    c_rows = rows[(rows["slot"] == "c") & (rows["sample_index"] == 0)]
+    # Behavioral stability on (c): majority vote over DISTINCT prompt texts
+    c_rows = rows[(rows["slot"] == "c") & (rows["success_flag"] == True)]  # noqa: E712
     if len(c_rows) >= 3:
-        answers = c_rows["parsed_answer"].value_counts()
-        slot_c_ok = len(answers) > 0 and answers.iloc[0] >= (len(c_rows) // 2 + 1)
+        distinct_c = c_rows.drop_duplicates(subset=["prompt_text"]) if "prompt_text" in c_rows.columns else c_rows
+        vc = distinct_c["parsed_answer"].value_counts()
+        mv = vc.index[0] if len(vc) > 0 and vc.iloc[0] > len(distinct_c) / 2 else None
+        slot_c_ok = mv is not None and _answers_match(mv, gold)
     else:
         slot_c_ok = False
 
     slot_d_ok = _correct("d", "d_valid") and _correct("d", "d_harmful")
 
-    # CoT robustness: majority answer constant across e1, e2, e3
-    e_rows = rows[(rows["slot"] == "e") & (rows["sample_index"] == 0)]
+    # CoT robustness: majority answer matches gold across e1, e2, e3
+    e_rows = rows[(rows["slot"] == "e") & (rows["success_flag"] == True)]  # noqa: E712
     if len(e_rows) >= 2:
-        e_answers = e_rows["parsed_answer"].value_counts()
-        slot_e_ok = len(e_answers) > 0 and e_answers.iloc[0] >= (len(e_rows) // 2 + 1)
+        e_vc = e_rows["parsed_answer"].value_counts()
+        e_mv = e_vc.index[0] if len(e_vc) > 0 and e_vc.iloc[0] > len(e_rows) / 2 else None
+        slot_e_ok = e_mv is not None and _answers_match(e_mv, gold)
     else:
         slot_e_ok = False
 
