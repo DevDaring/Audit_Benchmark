@@ -16,11 +16,12 @@ Every "Issue" section describes something that actually broke, was debugged, and
 7. [Flash Attention — Compatibility and Installation](#7-flash-attention--compatibility-and-installation)
 8. [The Ephemeral Storage Problem](#8-the-ephemeral-storage-problem)
 9. [Memory Management — The Most Confusing Part](#9-memory-management--the-most-confusing-part)
-10. [Uploading .env to the VM](#10-uploading-env-to-the-vm)
-11. [Running the Dry Run and GPU Pipeline](#11-running-the-dry-run-and-gpu-pipeline)
-12. [Scripts Reference](#12-scripts-reference)
-13. [Troubleshooting Index](#13-troubleshooting-index)
-14. [Cost Estimate](#14-cost-estimate)
+10. [Pre-Downloading All Models Before Running Code](#10-pre-downloading-all-models-before-running-code)
+11. [Uploading .env to the VM](#11-uploading-env-to-the-vm)
+12. [Running the Dry Run and GPU Pipeline](#12-running-the-dry-run-and-gpu-pipeline)
+13. [Scripts Reference](#13-scripts-reference)
+14. [Troubleshooting Index](#14-troubleshooting-index)
+15. [Cost Estimate](#15-cost-estimate)
 
 ---
 
@@ -557,7 +558,117 @@ cat /proc/loadavg
 
 ---
 
-## 10. Uploading .env to the VM
+## 10. Pre-Downloading All Models Before Running Code
+
+> **Golden rule: ALWAYS pre-download ALL models AND datasets before any GPU code runs.**
+> If any model or dataset is missing at runtime, the pipeline crashes mid-run — potentially hours into an expensive GPU session.
+
+### Why this matters on Akash
+
+On conventional cloud (AWS, GCP), if a download fails you lose seconds. On Akash:
+- Downloads happen while the GPU is active → CUDA context is live → high host-memory pressure
+- A 14 GB model download + an active CUDA context can trigger **node-level container eviction** (exit 137) on an overloaded Akash provider — silently terminating the container mid-run
+- All installed packages and partial downloads are wiped (ephemeral storage)
+- You re-pay for the entire pipeline restart
+
+**The solution is to pre-download everything in a dedicated phase BEFORE any GPU model is loaded.** `predownload_models.py` does this. Pure disk I/O, no GPU activity, no CUDA context — safe from host eviction.
+
+### Issue 10: Container evicted during mid-run model download (confirmed in live runs)
+
+**What happened (actual run log):**
+```
+[240s] INFO:__main__:  [PASS] OSM_LOAD_LLAMA_3.1_8B_INSTRUCT   attn=flash_attention_2
+[240s] INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_LLAMA_3.1_8B_INSTRUCT
+[240s] INFO:GPU_CPU.load_osm:Model 'llama-3.1-8b-instruct' unloaded and VRAM freed.
+[240s] INFO:GPU_CPU.load_osm:Loading model: qwen2.5-7b-instruct ...
+[240s]   Fetching 4 files:   0%|  | 0/4 [00:00<?, ?it/s]
+[270s] tail: cannot open '/workspace/full_pipeline.log'   ← CONTAINER RESTARTED
+```
+
+LLaMA was already in the HF disk cache from a previous session, so it loaded in <40 s. Qwen was NOT cached → triggered a fresh 14 GB download → container evicted 30 seconds into the download.
+
+**Root cause:** Network download of a large model while GPU/CUDA context is active → host pinned-memory pressure → kubelet OOM-evicts the container.
+
+**Fix applied:** `_full_pipeline.py` now runs `predownload_models.py` AFTER install and BEFORE any dry run. All 4 models are downloaded to HF disk cache before a single GPU line runs.
+
+### The predownload_models.py script
+
+```python
+# akash/predownload_models.py  (simplified)
+from huggingface_hub import snapshot_download
+
+MODELS = [
+    "meta-llama/Llama-3.1-8B-Instruct",   # ~16 GB  (gated — needs HF token)
+    "Qwen/Qwen2.5-7B-Instruct",            # ~14 GB  (public)
+    "google/gemma-2-2b-it",                # ~4 GB   (public)
+    "microsoft/Phi-4-mini-instruct",       # ~8 GB   (public)
+]
+
+for model_id in MODELS:
+    snapshot_download(repo_id=model_id, token=HF_TOKEN)
+```
+
+`snapshot_download` is cache-aware: if a model is already fully downloaded it skips it immediately. So on a restart where LLaMA was already cached, only the missing models are fetched.
+
+### Critical rules for model usage
+
+| Rule | Reason |
+|---|---|
+| Download ALL 4 models, not just the ones you think you'll test | Partial download = silent cache miss = download triggered mid-GPU-run = potential eviction |
+| Download BEFORE loading any model into GPU | Network + active CUDA context = host memory pressure = eviction risk |
+| Use `snapshot_download` (not `hf_hub_download`) | Downloads the entire repo including tokenizer, config, and all weight shards in one call |
+| Keep HF token available before predownload runs | LLaMA is a gated model — `HUGGINGFACE_TOKEN` must be in env or `.env` when predownload runs |
+| Never add a new model to `config.py` without adding it to `predownload_models.py` | If config has a model the predownload doesn't know about, it will be downloaded mid-run |
+| Never remove a model from `predownload_models.py` without removing it from `config.py` | Unnecessary downloads waste time; mismatches cause runtime crashes |
+
+### Keeping config.py and predownload_models.py in sync
+
+`config.py` defines what models the pipeline uses. `predownload_models.py` defines what gets pre-cached. **These two lists must always match.**
+
+```
+config.py  OSM_MODELS[*]["hf_id"]   ←→   predownload_models.py  MODELS[]
+```
+
+Whenever you change one, change the other. If you add a new model to the research, update both files together — they are a matched pair.
+
+### Dataset pre-download (same principle)
+
+The pipeline uses 4 benchmark datasets: `BBQ`, `CrowS-Pairs`, `StereoSet`, `WinoBias`. These are loaded via HuggingFace `datasets`. To pre-cache them:
+
+```bash
+# Run on the VM before any pipeline code (no GPU needed)
+python3 -c "
+from datasets import load_dataset
+for ds in ['heegyu/bbq', 'BigSocialMedia/crows-pairs',
+           'McGill-NLP/stereoset', 'uclanlp/winobias']:
+    try:
+        load_dataset(ds, split='test', trust_remote_code=True)
+        print(f'OK: {ds}')
+    except Exception as e:
+        print(f'WARN {ds}: {e}')
+"
+```
+
+Add this to `predownload_models.py` (or a companion `predownload_datasets.py`) if datasets are not already bundled in the repo.
+
+### The correct pipeline execution order
+
+```
+1. Upload .env (HUGGINGFACE_TOKEN must be available)
+2. install.sh  (Python packages only — no model loading)
+3. git pull    (ensure latest code)
+4. cp .env     (copy to runtime path so predownload can read it)
+5. predownload_models.py  ← ALL models to HF cache (NO GPU activity)
+6. [optional] predownload datasets
+7. dry_run_gpu_cpu.py  ← loads from cache only, NO network downloads
+8. [full run] gpu_cpu pipeline
+```
+
+This exact order is implemented in `akash/_full_pipeline.py` (as of commit `c99c248`).
+
+---
+
+## 11. Uploading .env to the VM
 
 The `.env` file contains API keys and must never be committed to git.
 
@@ -586,7 +697,7 @@ cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env
 
 ---
 
-## 11. Running the Dry Run and GPU Pipeline
+## 12. Running the Dry Run and GPU Pipeline
 
 ### Full pipeline (from local machine)
 
@@ -595,16 +706,36 @@ cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env
 python akash/_full_pipeline.py
 ```
 
-This script:
+This script (as of commit `c99c248`):
 1. Uploads `.env` to `/workspace/mirage.env` via SFTP
 2. Kills any stale tmux sessions
-3. Launches chained tmux command:
-   - `cp .env` → staging to runtime path
+3. Launches chained tmux command (**updated order**):
    - `install.sh` → all packages
+   - `INSTALL_OK` sentinel written to log
    - `git pull` → ensure latest code
-   - `dry_run_gpu_cpu.py --n-seeds 2`
-4. Polls every 30 seconds (reconnects each poll to avoid SSH timeout)
+   - `cp .env` → staging to runtime path (HF token now available)
+   - `predownload_models.py` → ALL 4 models cached to disk before any GPU activity
+   - `PREDOWNLOAD_OK` sentinel written to log
+   - `dry_run_gpu_cpu.py --n-seeds 2` → loads from cache, zero network downloads
+   - `PIPELINE_DONE` sentinel always written at end
+4. Polls every 30 seconds with phase tracking: `INSTALL` → `PREDOWNLOAD` → `DRY_RUN`
 5. Prints final PASS/FAIL result
+
+### What the polling output looks like
+
+```
+[30s]  log=6897B  phase=INSTALL      DONE=0   ← packages downloading
+[90s]  log=29025B phase=INSTALL      DONE=0   ← HF stack installing
+[150s] *** INSTALL_OK at 150s — models pre-downloading ... ***
+[150s] log=89824B phase=PREDOWNLOAD  DONE=0   ← LLaMA downloading (17 files)
+[210s] log=110kB  phase=PREDOWNLOAD  DONE=0   ← Qwen downloading
+[330s] *** PREDOWNLOAD_OK at 330s — all models cached, dry run starting ***
+[330s] log=200kB  phase=DRY_RUN      DONE=0   ← dry run running
+[360s] log=210kB  phase=DRY_RUN      DONE=0   ← all models loaded from cache
+[390s] PIPELINE_DONE
+       RESULT: 10 PASS, 0 FAIL
+       2-SEED DRY RUN PASSED.
+```
 
 ### Dry run checks (what PASS looks like)
 
@@ -640,7 +771,7 @@ tail -f /workspace/full_pipeline.log   # tail the log
 
 ---
 
-## 12. Scripts Reference
+## 13. Scripts Reference
 
 All scripts live in `akash/`. Run from repo root.
 
@@ -670,7 +801,7 @@ All scripts live in `akash/`. Run from repo root.
 
 ---
 
-## 13. Troubleshooting Index
+## 14. Troubleshooting Index
 
 ### Memory / container restart issues (most common)
 
@@ -679,8 +810,21 @@ All scripts live in `akash/`. Run from repo root.
 | Container restarts every few minutes during model loading | `cat /sys/fs/cgroup/memory.max` | SDL `memory:` too low (e.g. 16Gi) — cgroup OOM | Redeploy with `memory: 64Gi` |
 | `free -h` shows 2 TiB but container still OOMs | Don't trust `free -h` in containers | `free` reads host RAM, not cgroup limit | Check `/sys/fs/cgroup/memory.max` instead |
 | Container restarts even with 64 GiB cgroup, only 300 MB used | `cat /proc/loadavg` | Node-level eviction (host overloaded) | Reduce model sizes; switch to sequential load/unload |
+| Container evicted mid-run during a model download | Check timing: restart happens when `Fetching N files` appears | Download + active CUDA context = host memory pressure | Run `predownload_models.py` BEFORE any GPU code (see §10) |
 | Log file disappears after restart | Ephemeral storage wiped | Container restarted → `/workspace` cleared | Use chained tmux session (see §8) |
 | `memory.max` shows correct limit but OOM still happens | Check GPU kernel memory | Pinned GPU memory not tracked by cgroup | Reduce peak VRAM by using smaller models |
+
+### Model and dataset issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `OSError: model not found` or HF download mid-run | Model not pre-cached | Run `predownload_models.py` before dry run (see §10) |
+| Container evicted right when a model starts downloading | Download + active CUDA context = host OOM | Pre-download all models before first GPU load; see §10 |
+| `config.py` has a model not in `predownload_models.py` | Lists out of sync | Keep `config.py OSM_MODELS[*]["hf_id"]` and `predownload_models.py MODELS[]` identical |
+| `predownload_models.py` downloads a model not in `config.py` | Lists out of sync | Remove the stale entry from `predownload_models.py` |
+| LLaMA loads fast but Qwen/Gemma restart the container | LLaMA was cached; others were not | Pre-download ALL models, not just the ones you've tested |
+| Dataset not found at runtime | HF datasets not pre-cached | Add dataset pre-download to `predownload_models.py` or a companion script (see §10) |
+| `KeyError: model_name` in pipeline | Model name in code doesn't match key in `_LOADED_MODELS` | Ensure model names in `config.py`, `load_osm.py`, and `predownload_models.py` all match exactly |
 
 ### Deployment issues
 
@@ -704,7 +848,7 @@ All scripts live in `akash/`. Run from repo root.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `HUGGINGFACE_TOKEN` missing | `.env` not on VM | Upload via SFTP BEFORE launching install chain; see §10 |
+| `HUGGINGFACE_TOKEN` missing | `.env` not on VM | Upload via SFTP BEFORE launching install chain; see §11 |
 | Packages gone after reconnect | Container restarted | Chain install+code in single tmux session; see §8 |
 | `ModuleNotFoundError: dotenv` | Install exited early | Apply `__version__` fix to install.sh |
 | OOM during CDVA patching | TL + HF model both in VRAM | Set threshold to 1.0× in `cdva_patching.py` |
@@ -718,11 +862,14 @@ All scripts live in `akash/`. Run from repo root.
 
 ---
 
-## 14. Cost Estimate
+## 15. Cost Estimate
 
 | Phase | Duration | Cost at ~$1.25/hr |
 |---|---|---|
-| Install + 2-seed dry run | ~10 min | ~$0.21 |
+| Install packages | ~2.5 min | ~$0.05 |
+| Pre-download all 4 models (~42 GB) | ~5–10 min | ~$0.10–$0.20 |
+| 2-seed dry run (from cache) | ~3–5 min | ~$0.06–$0.10 |
+| **Total dry run validation** | **~10–18 min** | **~$0.21–$0.35** |
 | Full GPU behavioral eval (4 OSM models, full dataset) | ~6–10 hr | ~$7.50–$12.50 |
 | CDVA patching (4 models) | ~3–5 hr | ~$3.75–$6.25 |
 | CPU-only API eval | runs on separate machine | — |
