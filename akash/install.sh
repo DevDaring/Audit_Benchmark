@@ -3,7 +3,7 @@
 # install.sh  — MIRAGE GPU VM package installer
 # Container: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
 # Python:    3.10.12 (system)
-# GPU:       NVIDIA A100 40 GB
+# GPU:       NVIDIA A100 80 GB SXM4
 # =============================================================================
 set -euo pipefail
 LOG=/workspace/install.log
@@ -18,13 +18,21 @@ apt-get install -y --no-install-recommends \
     build-essential g++ cmake \
     libssl-dev libffi-dev \
     openssh-server \
-    python3-pip python3-dev \
+    python3-dev \
     > /dev/null
 
 echo "[install] System packages done"
 
-# ------------------------------------------------------------------ pip baseline
-python3 -m pip install --upgrade pip setuptools wheel packaging ninja
+# ------------------------------------------------------------------ pip bootstrap
+# CRITICAL: Do NOT install python3-pip via apt then upgrade it in place.
+# On Ubuntu 22.04 the apt pip is patched; upgrading it via pip --upgrade pip
+# often leaves python3 -m pip in a broken state (no module named pip).
+# The safe path is always: bootstrap from get-pip.py first.
+echo "[install] Bootstrapping pip via get-pip.py ..."
+curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+python3 /tmp/get-pip.py --quiet
+python3 -m pip --version   # must succeed before we proceed
+python3 -m pip install --quiet setuptools wheel packaging ninja
 echo "[install] pip/setuptools/wheel done"
 
 # ------------------------------------------------------------------ PyTorch 2.6 + CUDA 12.4

@@ -3,6 +3,13 @@ File: GPU_CPU/load_osm.py
 Purpose: Load all 4 OSM models in bf16 with flash-attention-2. Verifies
          flash-attention is active for each loaded model.
 
+80 GB strategy:
+  All four models total ~56 GB in bf16, leaving ~24 GB free for activations,
+  KV cache, and TransformerLens overlaps.  load_all_osm_models() therefore
+  loads every model once and keeps them in the _LOADED_MODELS cache for the
+  entire pipeline run.  unload_model() is still available but is now only
+  called from cdva_patching when VRAM is genuinely tight (unlikely on 80 GB).
+
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
   - Dao et al. (2022). "FlashAttention." NeurIPS 2022.
@@ -140,6 +147,10 @@ def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
     """
     Load all 4 OSM models. Verifies GPU is available before starting.
 
+    On an A100 80 GB all four models (~56 GB total) fit simultaneously, so
+    this function loads them all and keeps them resident for the full pipeline
+    run.  No intermediate unloading is required.
+
     Returns
     -------
     dict[str, tuple[model, tokenizer]]
@@ -159,9 +170,20 @@ def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
         torch.cuda.get_device_name(0),
         gpu_mem_gb,
     )
-    if gpu_mem_gb < 20:
+
+    # Warn if total estimated model VRAM (~56 GB) would exceed available memory.
+    _ESTIMATED_MODEL_VRAM_GB = 56.0
+    if gpu_mem_gb < _ESTIMATED_MODEL_VRAM_GB:
         logger.warning(
-            "GPU has only %.1f GB; some models may OOM. Target is L4 24 GB.", gpu_mem_gb
+            "GPU has %.1f GB; all 4 models need ~%.1f GB.  "
+            "Consider loading models one-at-a-time (pass model names individually).",
+            gpu_mem_gb,
+            _ESTIMATED_MODEL_VRAM_GB,
+        )
+    else:
+        logger.info(
+            "80 GB GPU detected — loading all 4 models simultaneously "
+            "(no unload/reload between pipeline phases)."
         )
 
     loaded: dict[str, tuple[Any, Any]] = {}

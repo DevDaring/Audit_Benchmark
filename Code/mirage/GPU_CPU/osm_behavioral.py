@@ -3,6 +3,16 @@ File: GPU_CPU/osm_behavioral.py
 Purpose: Behavioral evaluation of all 4 OSM models across the full pentad
          probe set. Produces behavioral_results.parquet.
 
+Parallelism strategy (A100 80 GB SXM4):
+  - All 4 OSM models are kept in VRAM simultaneously (~56 GB total), so there
+    is no model-reload overhead between evaluation phases.
+  - Batch inference: EVAL_BATCH_SIZE prompts are tokenised and forwarded in a
+    single GPU call instead of one at a time.  On 80 GB with 24 GB headroom
+    a batch of 8 fits comfortably even for the largest model (Phi-4-mini, ~8 GB).
+  - Outlines constrained decoding is single-prompt only; the batch path uses
+    raw model.generate() with left-padding, which is equally deterministic at
+    temperature=0.
+
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
   - Parrish et al. (2022). BBQ. Findings of ACL 2022.
@@ -15,7 +25,6 @@ import json
 import logging
 import sys
 import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +35,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, RESEARCH_SYSTEM_PROMPT, ensure_dirs
 
 logger = logging.getLogger(__name__)
+
+# Number of prompts to forward in a single batched GPU call.
+# 8 fits in 80 GB for all models; lower to 4 if OOM errors appear on smaller GPUs.
+EVAL_BATCH_SIZE: int = 8
 
 _BEHAVIORAL_PATH = RESULTS_DIR / "behavioral_results.parquet"
 
@@ -63,10 +76,10 @@ def _generate_constrained(
     """
     Generate a response using outlines constrained JSON decoding.
     Falls back to unconstrained generation if outlines fails.
+    Used for single-prompt paths (e.g. when batch_size=1).
     """
     try:
         import outlines  # type: ignore
-        import outlines.models as om
         import outlines.generate as og
 
         gen = og.json(model, _JSON_SCHEMA)
@@ -74,7 +87,6 @@ def _generate_constrained(
         return json.dumps(result)
     except Exception as exc:
         logger.debug("outlines constrained decode failed (%s), falling back.", exc)
-        # Unconstrained fallback
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
         import torch
         with torch.no_grad():
@@ -83,8 +95,74 @@ def _generate_constrained(
                 max_new_tokens=max_tokens,
                 temperature=temperature if temperature > 0 else None,
                 do_sample=temperature > 0,
+                pad_token_id=tokenizer.eos_token_id,
             )
         return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
+def _generate_constrained_batch(
+    model: Any,
+    tokenizer: Any,
+    prompts: list[str],
+    temperature: float,
+    max_tokens: int,
+) -> list[str]:
+    """
+    Batch generation path.  Tokenises all prompts together with left-padding
+    and runs a single model.generate() call, returning one decoded string per
+    prompt.
+
+    Outlines does not support batching, so this path always uses the raw
+    model.generate() fallback.  At temperature=0 the output is fully
+    deterministic, identical to the single-prompt unconstrained fallback.
+
+    Parameters
+    ----------
+    prompts : list[str]
+        Up to EVAL_BATCH_SIZE formatted prompt strings.
+
+    Returns
+    -------
+    list[str]
+        Decoded output strings, one per input prompt (same order).
+    """
+    import torch
+
+    if not prompts:
+        return []
+
+    # Left-padding so all sequences in the batch end at the same position —
+    # this is required for decoder-only causal models.
+    orig_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    try:
+        inputs = tokenizer(
+            prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=2048,
+        ).to(model.device)
+
+        with torch.no_grad():
+            out = model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                temperature=temperature if temperature > 0 else None,
+                do_sample=temperature > 0,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+    finally:
+        tokenizer.padding_side = orig_padding_side
+
+    input_len = inputs["input_ids"].shape[1]
+    return [
+        tokenizer.decode(out[i][input_len:], skip_special_tokens=True)
+        for i in range(out.shape[0])
+    ]
 
 
 def _build_prompt(system: str, user: str, tokenizer: Any) -> str:
@@ -93,6 +171,45 @@ def _build_prompt(system: str, user: str, tokenizer: Any) -> str:
     if hasattr(tokenizer, "apply_chat_template"):
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     return f"<|system|>{system}\n<|user|>{user}\n<|assistant|>"
+
+
+def _parse_raw_response(raw_response: str) -> tuple[bool, str, float, str, str, str]:
+    """
+    Parse a raw model response string into result fields.
+
+    Returns
+    -------
+    (success_flag, parsed_answer, parsed_confidence, parsed_rationale,
+     parse_method, failure_reason)
+    """
+    if not raw_response.strip():
+        return False, "", 0.0, "", "failed", "empty_response"
+
+    candidate = raw_response if raw_response.startswith("{") else None
+    if candidate is None:
+        # Try to find the first JSON object in the string
+        start = raw_response.find("{")
+        if start != -1:
+            candidate = raw_response[start:]
+
+    parsed = None
+    if candidate:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            parsed = _repair_json(candidate)
+
+    if parsed is None:
+        return False, "", 0.0, "", "failed", "parse_error"
+
+    return (
+        True,
+        str(parsed.get("answer", "")),
+        float(parsed.get("confidence", 0.0)),
+        str(parsed.get("rationale", "")),
+        "json",
+        "",
+    )
 
 
 def evaluate_osm_model(
@@ -104,9 +221,21 @@ def evaluate_osm_model(
     temperature: float = 0.0,
     max_tokens: int = 256,
     sample_index: int = 0,
+    batch_size: int = EVAL_BATCH_SIZE,
 ) -> pd.DataFrame:
     """
     Evaluate a single OSM model on the full pentad dataset.
+
+    Parallelism: prompts are processed in batches of `batch_size` using a
+    single GPU forward pass per batch (via _generate_constrained_batch).
+    At temperature=0 this is deterministically equivalent to single-prompt
+    evaluation.
+
+    Parameters
+    ----------
+    batch_size : int
+        Number of prompts per GPU call.  Default is EVAL_BATCH_SIZE (8).
+        Lower to 1 or 2 when debugging or on GPUs with <24 GB free VRAM.
 
     Returns
     -------
@@ -122,90 +251,91 @@ def evaluate_osm_model(
     except Exception:
         model_version = model_cfg["hf_id"]
 
+    # Pre-filter: FM4 variance pass only needs slot-a.
+    if sample_index > 0:
+        pentad_df = pentad_df[pentad_df.get("slot", pd.Series(dtype=str)) == "a"].copy()
+
+    # Drop empty prompts.
+    pentad_df = pentad_df[pentad_df["prompt_text"].astype(str).str.strip() != ""].reset_index(drop=True)
+
     rows: list[dict] = []
     total = len(pentad_df)
+    now_utc = datetime.now(timezone.utc).isoformat()
 
-    for i, (_, prow) in enumerate(pentad_df.iterrows()):
-        prompt_id = prow["prompt_id"]
-        slot = prow.get("slot", "")
+    for batch_start in range(0, total, batch_size):
+        batch = pentad_df.iloc[batch_start : batch_start + batch_size]
 
-        # FM4 variance pass (sample_index > 0) must run on slot-a only.
-        # Running it on all slots would multiply GPU work by ~12x and produce
-        # variance data for slots that are not scored under FM4.
-        if sample_index > 0 and slot != "a":
-            continue
+        # Build formatted prompts for the whole batch.
+        formatted_prompts = [
+            _build_prompt(_SYSTEM_PROMPT, str(r["prompt_text"]), tokenizer)
+            for _, r in batch.iterrows()
+        ]
 
-        prompt_text = str(prow.get("prompt_text", ""))
-        if not prompt_text.strip():
-            continue
-
-        gold_answer = str(prow.get("gold_answer", ""))
-        formatted = _build_prompt(_SYSTEM_PROMPT, prompt_text, tokenizer)
         t_start = time.monotonic()
-
-        parse_method = "json"
-        success_flag = True
-        failure_reason = ""
-        parsed_answer = ""
-        parsed_confidence = 0.0
-        parsed_rationale = ""
-        raw_response = ""
-
         try:
-            raw_response = _generate_constrained(model, tokenizer, formatted, temperature, max_tokens)
-            parsed = json.loads(raw_response) if raw_response.startswith("{") else _repair_json(raw_response)
-            if parsed is None:
-                parse_method = "failed"
-                success_flag = False
-                failure_reason = "parse_error"
-            else:
-                parsed_answer = str(parsed.get("answer", ""))
-                parsed_confidence = float(parsed.get("confidence", 0.0))
-                parsed_rationale = str(parsed.get("rationale", ""))
+            raw_responses = _generate_constrained_batch(
+                model, tokenizer, formatted_prompts, temperature, max_tokens
+            )
         except Exception as exc:
-            raw_response = str(exc)
-            parse_method = "failed"
-            success_flag = False
-            failure_reason = "parse_error"
+            # If batch generation fails entirely, produce error rows for all.
+            logger.warning(
+                "OSM %s: batch generation failed (%s). Falling back to single-prompt.", model_name, exc
+            )
+            raw_responses = []
+            for fp in formatted_prompts:
+                try:
+                    raw_responses.append(
+                        _generate_constrained(model, tokenizer, fp, temperature, max_tokens)
+                    )
+                except Exception as e2:
+                    raw_responses.append(str(e2))
 
-        latency_ms = int((time.monotonic() - t_start) * 1000)
+        latency_ms_total = int((time.monotonic() - t_start) * 1000)
+        per_prompt_ms = latency_ms_total // max(len(batch), 1)
 
-        rows.append(
-            {
-                "run_id": run_id,
-                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-                "seed_id": prow.get("seed_id", ""),
-                "seed_source": prow.get("seed_source", ""),
-                "seed_category": prow.get("seed_category", ""),
-                "seed_subcategory": prow.get("seed_subcategory", ""),
-                "prompt_id": prompt_id,
-                "slot": slot,
-                "subvariant": prow.get("subvariant", ""),
-                "gold_answer": gold_answer,
-                "model_name": model_name,
-                "model_provider": model_provider,
-                "model_version": model_version,
-                "route_used": "local",
-                "key_index": -1,
-                "attempt_count": 1,
-                "prompt_text": prompt_text,
-                "raw_response": raw_response,
-                "parsed_answer": parsed_answer,
-                "parsed_confidence": parsed_confidence,
-                "parsed_rationale": parsed_rationale,
-                "parse_method": parse_method,
-                "success_flag": success_flag,
-                "failure_reason": failure_reason,
-                "latency_ms": latency_ms,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "sample_index": sample_index,
-            }
-        )
+        for j, (_, prow) in enumerate(batch.iterrows()):
+            raw_response = raw_responses[j] if j < len(raw_responses) else ""
+            success_flag, parsed_answer, parsed_confidence, parsed_rationale, parse_method, failure_reason = (
+                _parse_raw_response(raw_response)
+            )
 
-        if (i + 1) % 50 == 0:
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "timestamp_utc": now_utc,
+                    "seed_id": prow.get("seed_id", ""),
+                    "seed_source": prow.get("seed_source", ""),
+                    "seed_category": prow.get("seed_category", ""),
+                    "seed_subcategory": prow.get("seed_subcategory", ""),
+                    "prompt_id": prow["prompt_id"],
+                    "slot": prow.get("slot", ""),
+                    "subvariant": prow.get("subvariant", ""),
+                    "gold_answer": str(prow.get("gold_answer", "")),
+                    "model_name": model_name,
+                    "model_provider": model_provider,
+                    "model_version": model_version,
+                    "route_used": "local",
+                    "key_index": -1,
+                    "attempt_count": 1,
+                    "prompt_text": str(prow.get("prompt_text", "")),
+                    "raw_response": raw_response,
+                    "parsed_answer": parsed_answer,
+                    "parsed_confidence": parsed_confidence,
+                    "parsed_rationale": parsed_rationale,
+                    "parse_method": parse_method,
+                    "success_flag": success_flag,
+                    "failure_reason": failure_reason,
+                    "latency_ms": per_prompt_ms,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "sample_index": sample_index,
+                }
+            )
+
+        if (batch_start + len(batch)) % 50 < batch_size:
             logger.info(
-                "OSM %s: %d/%d prompts done (sample_index=%d).", model_name, i + 1, total, sample_index
+                "OSM %s: %d/%d prompts done (sample_index=%d, batch_size=%d).",
+                model_name, batch_start + len(batch), total, sample_index, batch_size,
             )
 
     return pd.DataFrame(rows)

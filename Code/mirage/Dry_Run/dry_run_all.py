@@ -21,7 +21,7 @@ from logger_setup import setup_logging
 logger = logging.getLogger(__name__)
 
 
-def _run_module(module_path: str, label: str) -> bool:
+def _run_module(module_path: str, label: str, **kwargs) -> bool:
     try:
         module_file = Path(__file__).parent / module_path
         import importlib.util
@@ -30,7 +30,7 @@ def _run_module(module_path: str, label: str) -> bool:
             raise ImportError(f"Cannot load {module_file}")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)  # type: ignore
-        result = mod.run()
+        result = mod.run(**kwargs)
         return bool(result)
     except Exception:
         logger.error("Dry run %s crashed:\n%s", label, traceback.format_exc())
@@ -41,6 +41,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="MIRAGE master dry run")
     parser.add_argument("--skip-gpu", action="store_true", help="Skip GPU_CPU dry run (for CPU-only machines).")
     parser.add_argument("--only", choices=["dataset", "gpu_cpu", "cpu_only"], help="Run one sub-dry-run only.")
+    parser.add_argument(
+        "--n-seeds",
+        type=int,
+        default=2,
+        help="Number of probe seeds for the GPU_CPU sub-dry-run (default: 2).",
+    )
     args = parser.parse_args()
 
     run_id = setup_logging()
@@ -64,7 +70,8 @@ def main() -> None:
     results: dict[str, bool] = {}
     for module_file, label in phases:
         logger.info("\n--- Running phase: %s ---", label)
-        passed = _run_module(module_file, label)
+        kwargs = {"n_seeds": args.n_seeds} if label == "GPU_CPU" else {}
+        passed = _run_module(module_file, label, **kwargs)
         results[label] = passed
         status = "PASS" if passed else "FAIL"
         logger.info("--- Phase %s: %s ---\n", label, status)

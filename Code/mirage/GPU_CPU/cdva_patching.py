@@ -273,10 +273,18 @@ def run_cdva(
         model, tokenizer = models[model_name]
 
         # For TransformerLens patching (Llama, Gemma) the HF model is converted
-        # to a HookedTransformer inside utils_attention.py.  On a 40 GB A100
-        # the conversion can coexist with the HF model in VRAM for 8 B params
-        # (~32 GB total) but is very tight for 9 B Gemma (~36 GB).  We free the
-        # HF model BEFORE conversion and reload it afterwards to stay within budget.
+        # to a HookedTransformer inside utils_attention.py.  The TL copy adds
+        # roughly the same amount of VRAM as the HF model itself.
+        #
+        # On an A100 80 GB (all 4 models loaded, ~56 GB used, ~24 GB free):
+        #   - Llama 8 B  (~16 GB): needs ~16 GB for TL → 24 GB free is sufficient.
+        #   - Gemma 9 B  (~18 GB): needs ~18 GB for TL → 24 GB free is sufficient.
+        #   → No unloading needed on 80 GB.
+        #
+        # On a 40 GB A100 (single model loaded, ~24–36 GB used, 4–16 GB free):
+        #   Threshold: unload if free_gb < model_param_gb (1.0× safety margin).
+        #
+        # The threshold was previously 1.5× which triggered unnecessarily on 80 GB.
         tl_unloaded = False
         if patching_lib == "transformer_lens":
             from GPU_CPU.load_osm import unload_model, load_model as _reload
@@ -287,8 +295,9 @@ def run_cdva(
             model_param_gb = sum(
                 p.numel() * p.element_size() for p in model.parameters()
             ) / (1024 ** 3)
-            # If less than 1.5× the model's own weight budget is free, unload first
-            if free_gb < model_param_gb * 1.5:
+            # Unload only when free VRAM is genuinely insufficient for TL coexistence.
+            # Use 1.0× margin (down from 1.5×) so 80 GB GPUs never trigger unload.
+            if free_gb < model_param_gb * 1.0:
                 logger.info(
                     "CDVA: freeing HF model '%s' (%.1f GB) before TL conversion "
                     "(only %.1f GB VRAM free).",
