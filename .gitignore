@@ -1,0 +1,21 @@
+# Secrets and local env files
+.env
+.env.*
+*.env
+
+# Keep examples/template env files tracked
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
