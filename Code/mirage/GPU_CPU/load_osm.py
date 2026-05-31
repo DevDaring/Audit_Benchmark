@@ -33,6 +33,40 @@ logger = logging.getLogger(__name__)
 _LOADED_MODELS: dict[str, tuple[Any, Any]] = {}  # name -> (model, tokenizer)
 
 
+def _patch_transformers_compat() -> None:
+    """
+    Compatibility shim for transformers >= 4.55 which removed LossKwargs from
+    transformers.utils. Phi-4-mini's remote code imports it from that path.
+    Also strips any \r from the HuggingFace token (Windows CRLF .env files).
+    """
+    import os
+    import transformers.utils as _tu
+
+    # LossKwargs patch — add to transformers.utils if missing
+    if not hasattr(_tu, "LossKwargs"):
+        try:
+            from transformers.modeling_outputs import LossKwargs as _LK
+        except ImportError:
+            try:
+                from transformers.utils.generic import LossKwargs as _LK
+            except ImportError:
+                from typing import TypedDict
+
+                class _LK(TypedDict, total=False):  # type: ignore[no-redef]
+                    pass
+        _tu.LossKwargs = _LK  # type: ignore[attr-defined]
+        logger.debug("Patched transformers.utils.LossKwargs for Phi-4-mini compatibility.")
+
+    # Strip \r from HF token env vars (Windows CRLF .env uploaded via SFTP)
+    for key in ("HUGGINGFACE_TOKEN", "HF_TOKEN"):
+        val = os.environ.get(key, "")
+        if "\r" in val or val != val.strip():
+            os.environ[key] = val.strip().replace("\r", "").replace("\n", "")
+
+
+_patch_transformers_compat()
+
+
 def _check_platform() -> None:
     """Flash-attention requires Linux x86_64. Error out on other platforms."""
     system = platform.system()

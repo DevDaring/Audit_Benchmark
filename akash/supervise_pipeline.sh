@@ -26,9 +26,28 @@ until [ -f /data/.env ] || [ "$WAITED" -ge 600 ]; do
 done
 if [ -f /data/.env ]; then
   echo "[supervise] .env found after ${WAITED}s — sourcing tokens"
-  # Export HF_TOKEN from .env so predownload can use it
-  HF_LINE=$(grep '^HUGGINGFACE_TOKEN=' /data/.env 2>/dev/null || true)
-  [ -n "$HF_LINE" ] && export HF_TOKEN="${HF_LINE#*=}" && export HUGGINGFACE_TOKEN="${HF_LINE#*=}"
+  # Export HF_TOKEN from .env so predownload and TransformerLens can use it.
+  # Use tr -d '\r' to strip Windows CRLF endings from the token value.
+  HF_RAW=$(grep '^HUGGINGFACE_TOKEN=' /data/.env 2>/dev/null | head -1 || true)
+  if [ -n "$HF_RAW" ]; then
+    HF_TOKEN_CLEAN=$(printf '%s' "${HF_RAW#*=}" | tr -d '\r\n ')
+    export HF_TOKEN="$HF_TOKEN_CLEAN"
+    export HUGGINGFACE_TOKEN="$HF_TOKEN_CLEAN"
+    echo "[supervise] HF_TOKEN exported (len=${#HF_TOKEN_CLEAN})"
+  fi
+  # Also export all keys from .env into the environment for Python subprocesses,
+  # stripping \r from every value to handle Windows CRLF .env files.
+  while IFS= read -r line; do
+    line=$(printf '%s' "$line" | tr -d '\r')
+    case "$line" in
+      ''|\#*) continue ;;
+      *=*)
+        key="${line%%=*}"
+        val="${line#*=}"
+        export "$key"="$val"
+        ;;
+    esac
+  done < /data/.env
 else
   echo "[supervise] WARN: .env not found after 600s — gated model downloads may fail"
 fi
