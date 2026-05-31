@@ -92,7 +92,7 @@ python3 -m pip install \
 # Note: 2.18.0 is fine with torch 2.6 despite not explicitly requiring it.
 echo "[install] Installing TransformerLens 2.18.0 ..."
 python3 -m pip install "transformer_lens==2.18.0"
-python3 -c "import transformer_lens; print('[install] transformer_lens', transformer_lens.__version__)"
+python3 -c "import transformer_lens; print('[install] transformer_lens OK (v2.18.0 has no __version__ attr)')"
 
 # ------------------------------------------------------------------ nnsight 0.7.0
 # v0.6 removed the v0.4 compatibility layer; v0.7 is the latest stable.

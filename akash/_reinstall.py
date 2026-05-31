@@ -96,28 +96,37 @@ def main() -> None:
     _run(client, tmux_cmd)
     print("  tmux session 'reinstall' started.")
 
-    # Poll.
+    client.close()
+
+    # Poll by reconnecting each time (avoids SSH session timeout during long installs).
     deadline = time.time() + MAX_WAIT_MIN * 60
     polls = 0
     while time.time() < deadline:
         time.sleep(POLL_INTERVAL)
         polls += 1
-        done_count = _run(client, f"grep -c REINSTALL_DONE {LOG} 2>/dev/null || echo 0")
-        print(f"  [{polls * POLL_INTERVAL}s] REINSTALL_DONE count: {done_count.split()[-1]}")
-
+        try:
+            cl2 = _connect()
+            done_count = _run(cl2, f"grep -c REINSTALL_DONE {LOG} 2>/dev/null || echo 0")
+            tail5 = _run(cl2, f"tail -5 {LOG}", timeout=15)
+            cl2.close()
+        except Exception as exc:
+            print(f"  [{polls * POLL_INTERVAL}s] reconnect error: {exc}")
+            continue
+        print(f"  [{polls * POLL_INTERVAL}s] REINSTALL_DONE={done_count.split()[-1]}")
+        print("  " + "\n  ".join(tail5.splitlines()))
         if done_count.strip().endswith("1"):
             break
     else:
         print("TIMEOUT: install took too long.  Check /workspace/reinstall.log on the VM.")
-        client.close()
         sys.exit(1)
 
-    # Print verification block.
+    # Final checks via a fresh connection.
+    client = _connect()
+
     print("\n[3] Last 40 lines of reinstall.log:")
     tail = _run(client, f"tail -40 {LOG}", timeout=30)
     print(tail)
 
-    # Quick sanity: can we import torch?
     print("\n[4] torch import check:")
     torch_check = _run(
         client,

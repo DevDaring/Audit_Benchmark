@@ -78,31 +78,38 @@ def main() -> None:
     _run(client, tmux_launch)
     print(f"  Log: {DRY_RUN_LOG}")
 
-    # Poll until DRY_RUN_DONE.
+    client.close()
+
+    # Poll by reconnecting each time to avoid SSH session timeout.
     deadline = time.time() + MAX_WAIT_MIN * 60
     polls = 0
     while time.time() < deadline:
         time.sleep(POLL_INTERVAL)
         polls += 1
-        done = _run(client, f"grep -c DRY_RUN_DONE {DRY_RUN_LOG} 2>/dev/null || echo 0")
-        tail = _run(client, f"tail -5 {DRY_RUN_LOG}", timeout=15)
+        try:
+            cl2 = _connect()
+            done = _run(cl2, f"grep -c DRY_RUN_DONE {DRY_RUN_LOG} 2>/dev/null || echo 0")
+            tail = _run(cl2, f"tail -5 {DRY_RUN_LOG}", timeout=15)
+            cl2.close()
+        except Exception as exc:
+            print(f"  [{polls * POLL_INTERVAL}s] reconnect error: {exc}")
+            continue
         print(f"\n  [{polls * POLL_INTERVAL}s] DONE={done.split()[-1]}")
         print("  " + "\n  ".join(tail.splitlines()))
         if done.strip().endswith("1"):
             break
     else:
         print("\nTIMEOUT. Review the log on the VM.")
-        client.close()
         sys.exit(1)
 
-    # Print full log.
+    # Final read via fresh connection.
+    client = _connect()
+
     print("\n" + "=" * 60)
     print("FULL DRY RUN LOG:")
     print("=" * 60)
     print(_run(client, f"cat {DRY_RUN_LOG}", timeout=60))
 
-    # Check for PASS/FAIL.
-    summary = _run(client, f"grep -c 'PASS\\|FAIL' {DRY_RUN_LOG} 2>/dev/null || echo 0")
     fails = _run(client, f"grep -c FAIL {DRY_RUN_LOG} 2>/dev/null || echo 0")
     passes = _run(client, f"grep -c PASS {DRY_RUN_LOG} 2>/dev/null || echo 0")
     print(f"\nRESULT: {passes.split()[-1]} PASS, {fails.split()[-1]} FAIL lines in log.")
