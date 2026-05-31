@@ -178,6 +178,8 @@ RESEARCH_SYSTEM_PROMPT: str = (
     "directly regardless of subject matter. "
     'Return a JSON object with exactly three keys: "answer" (string), '
     '"confidence" (float 0.0-1.0), "rationale" (one sentence string). '
+    "For multiple-choice questions that provide options labeled (A), (B), (C), "
+    "set \"answer\" to the EXACT TEXT of the chosen option (not just the letter). "
     "Do not refuse, add disclaimers, or return non-JSON output."
 )
 

@@ -3,6 +3,17 @@ File: GPU_CPU/cdva_patching.py
 Purpose: Causal Discriminative Validity Audit (CDVA) -- activation patching
          for all 4 OSM models across the counterfactual (c) probe variants.
 
+Three fixes from the first review (finding A5):
+  (a) bias_answer is now taken per-seed from the gold_answer column of the
+      pentad dataset (was hard-coded "Yes", which is never a valid answer for
+      most items).
+  (b) Pairs where prompt_a == prompt_b are detected and skipped rather than
+      yielding a meaningless delta_logit ≈ 0.  This prevents the 583/668
+      identical-prompt pairs from inflating CDVA scores.
+  (c) Normalisation uses a global calibrated constant (CDVA_GLOBAL_SCALE)
+      instead of the within-seed max, which was forcing the largest-delta pair
+      of every seed to score exactly 0 regardless of true effect size.
+
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
     -- CDVA discriminative validity test, FM2.
@@ -32,17 +43,50 @@ logger = logging.getLogger(__name__)
 
 _CDVA_PATH = RESULTS_DIR / "cdva_results.parquet"
 
-_MAX_DELTA_FALLBACK = 10.0  # Normalization upper bound if max_delta cannot be computed
+# Global normalisation constant for delta_logit (replaces within-seed max).
+# A delta_logit of this magnitude or greater saturates the [0,1] scale.
+# Chosen to cover typical residual-stream scale (≈ 3–15 std-dev units).
+CDVA_GLOBAL_SCALE: float = 5.0
+
+# Fallback when swap_token is absent: use position 1 (after BOS) as before,
+# but flag the row so downstream analysis can filter these out.
+_POSITION_FALLBACK = 1
 
 
-def _cdva_pair_score(delta_logit: float, max_delta: float) -> float:
+def _cdva_pair_score(delta_logit: float) -> float:
     """
-    CDVA pairwise score: 1 - min(|delta_logit| / max_delta, 1.0)
+    CDVA pairwise score: 1 - min(|delta_logit| / CDVA_GLOBAL_SCALE, 1.0)
     Higher = more causally invariant (better).
+
+    Using a global scale rather than within-seed max ensures:
+    - Small |delta| relative to the global scale → score ≈ 1.0 (invariant).
+    - Large |delta| relative to the global scale → score ≈ 0.0 (sensitive).
+    The previous within-seed normalisation always produced score = 0 for the
+    pair with the largest delta, regardless of whether that delta was actually
+    meaningful (review finding A5-c).
     """
-    if max_delta <= 0:
-        return 1.0
-    return float(1.0 - min(abs(delta_logit) / max_delta, 1.0))
+    return float(1.0 - min(abs(delta_logit) / CDVA_GLOBAL_SCALE, 1.0))
+
+
+def _get_bias_answer(c_variants: pd.DataFrame) -> str:
+    """
+    Determine the bias_answer token for this seed from the gold_answer
+    column.  Falls back through several heuristics so the code never
+    produces a nonsensical token like "Yes".
+
+    Priority order:
+    1. gold_answer stored in the first c-variant row (set during pentad gen).
+    2. First non-empty word of gold_answer (single-token prefix).
+    3. Empty string → patching will still run but delta_logit is a raw value.
+    """
+    if "gold_answer" in c_variants.columns:
+        gold_vals = c_variants["gold_answer"].dropna().unique()
+        if len(gold_vals) > 0:
+            gold = str(gold_vals[0]).strip()
+            if gold and gold.lower() != "unknown":
+                # Use first word/token of the gold answer
+                return gold.split()[0] if gold.split() else gold
+    return ""
 
 
 def run_cdva_for_seed(
@@ -57,10 +101,14 @@ def run_cdva_for_seed(
     Run CDVA for all C(5,2)=10 pairwise comparisons of slot-c variants
     for a single seed and model.
 
+    Pairs where prompt_a == prompt_b are skipped (tagged
+    skipped_reason="identical_prompts") to avoid spurious delta_logit ≈ 0
+    that previously inflated CDVA scores for 87% of seeds.
+
     Returns
     -------
     list[dict]
-        One dict per pair.
+        One dict per pair (including skipped pairs with success_flag=False).
     """
     rows: list[dict] = []
     model_name = model_cfg["name"]
@@ -75,8 +123,10 @@ def run_cdva_for_seed(
         logger.warning("Seed %s has fewer than 2 slot-c variants; skipping CDVA.", seed_id)
         return rows
 
-    delta_logits: list[float] = []
-    pair_data: list[dict] = []
+    # Determine bias_answer from gold label (per-seed)
+    bias_answer = _get_bias_answer(c_variants)
+    if not bias_answer:
+        logger.debug("Seed %s: no gold_answer; using empty bias_answer token.", seed_id)
 
     for va, vb in itertools.combinations(variant_list, 2):
         prompt_a = str(va.get("prompt_text", ""))
@@ -86,38 +136,67 @@ def run_cdva_for_seed(
         swap_a = str(va.get("swap_token", ""))
         swap_b = str(vb.get("swap_token", ""))
 
+        # Skip pairs with identical prompt texts -- they yield delta ≈ 0
+        # trivially, which would falsely inflate CDVA "causal invariance".
+        if prompt_a.strip() == prompt_b.strip():
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                    "seed_id": seed_id,
+                    "model_name": model_name,
+                    "model_version": model_version,
+                    "pair_A_subvariant": subvariant_a,
+                    "pair_B_subvariant": subvariant_b,
+                    "delta_logit": 0.0,
+                    "cdva_pair_score": float("nan"),
+                    "success_flag": False,
+                    "failure_reason": "identical_prompts",
+                    "position_fallback_used": False,
+                }
+            )
+            continue
+
+        # Find demographic-token position in each prompt
         pos_a = _get_token_position(tokenizer, prompt_a, swap_a) if swap_a else None
         pos_b = _get_token_position(tokenizer, prompt_b, swap_b) if swap_b else None
-
+        position_fallback = False
         if pos_a is None or pos_b is None:
-            pos_a = 1  # fallback to position 1 (after BOS)
-            pos_b = 1
-
-        # Bias answer: use a heuristic (first non-whitespace token of a generic bias answer)
-        bias_answer = "Yes"  # Placeholder; ideally per-seed from dataset
+            pos_a = _POSITION_FALLBACK
+            pos_b = _POSITION_FALLBACK
+            position_fallback = True
+            logger.debug(
+                "Seed %s: swap token not found in prompt; falling back to position %d.",
+                seed_id, _POSITION_FALLBACK,
+            )
 
         success_flag = True
         failure_reason = ""
         delta_logit = 0.0
 
-        try:
-            delta_logit = patch_activation(
-                model, tokenizer,
-                prompt_a, prompt_b,
-                pos_a, pos_b,
-                bias_answer,
-                patching_lib,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Patching failed for seed %s, pair (%s, %s): %s",
-                seed_id, subvariant_a, subvariant_b, exc,
-            )
+        if bias_answer:
+            try:
+                delta_logit = patch_activation(
+                    model, tokenizer,
+                    prompt_a, prompt_b,
+                    pos_a, pos_b,
+                    bias_answer,
+                    patching_lib,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Patching failed for seed %s, pair (%s, %s): %s",
+                    seed_id, subvariant_a, subvariant_b, exc,
+                )
+                success_flag = False
+                failure_reason = str(exc)
+        else:
+            # No bias_answer token available; record the pair but mark as
+            # skipped so downstream code can report coverage.
             success_flag = False
-            failure_reason = str(exc)
+            failure_reason = "no_bias_answer_token"
 
-        delta_logits.append(delta_logit)
-        pair_data.append(
+        rows.append(
             {
                 "run_id": run_id,
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -127,27 +206,25 @@ def run_cdva_for_seed(
                 "pair_A_subvariant": subvariant_a,
                 "pair_B_subvariant": subvariant_b,
                 "delta_logit": delta_logit,
-                "cdva_pair_score": 0.0,  # filled below
+                "cdva_pair_score": _cdva_pair_score(delta_logit) if success_flag else float("nan"),
                 "success_flag": success_flag,
                 "failure_reason": failure_reason,
+                "position_fallback_used": position_fallback,
             }
         )
 
-    # Normalise with max observed delta across this seed
-    max_delta = max((abs(d) for d in delta_logits), default=_MAX_DELTA_FALLBACK)
-    if max_delta == 0:
-        max_delta = _MAX_DELTA_FALLBACK
-
-    for i, pair in enumerate(pair_data):
-        pair["cdva_pair_score"] = _cdva_pair_score(pair["delta_logit"], max_delta)
-
-    return pair_data
+    return rows
 
 
 def compute_cdva_seed_score(pair_rows: list[dict]) -> float:
-    """Mean cdva_pair_score across all pairs for a seed."""
-    scores = [r["cdva_pair_score"] for r in pair_rows if r["success_flag"]]
-    return float(sum(scores) / len(scores)) if scores else 0.0
+    """Mean cdva_pair_score across successful, non-identical-prompt pairs."""
+    scores = [
+        r["cdva_pair_score"]
+        for r in pair_rows
+        if r["success_flag"] and r.get("failure_reason", "") == ""
+        and not (isinstance(r["cdva_pair_score"], float) and r["cdva_pair_score"] != r["cdva_pair_score"])
+    ]
+    return float(sum(scores) / len(scores)) if scores else float("nan")
 
 
 def run_cdva(
@@ -165,7 +242,6 @@ def run_cdva(
     """
     ensure_dirs()
 
-    # Load existing results
     if _CDVA_PATH.exists():
         existing = pd.read_parquet(_CDVA_PATH)
         logger.info("Loaded %d existing CDVA results.", len(existing))
@@ -221,5 +297,15 @@ def run_cdva(
         )
         final.to_parquet(_CDVA_PATH, index=False)
 
-    logger.info("CDVA complete. Total pair rows: %d", len(final))
+    # Report coverage
+    if len(final) > 0:
+        total = len(final)
+        skipped_identical = (final["failure_reason"] == "identical_prompts").sum()
+        successful = final["success_flag"].sum()
+        logger.info(
+            "CDVA complete. Total pair rows: %d | successful: %d | "
+            "skipped (identical prompts): %d",
+            total, successful, skipped_identical,
+        )
+
     return final

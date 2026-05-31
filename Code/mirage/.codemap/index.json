@@ -3,8 +3,8 @@
     "schema_version": "1.0",
     "project_name": "MIRAGE",
     "project_kind": "research",
-    "last_updated": "2026-05-28T21:30:00Z",
-    "updated_by": "copilot",
+    "last_updated": "2026-05-31T14:00:00Z",
+    "updated_by": "cursor",
     "languages": ["python", "yaml"],
     "primary_entry_points": [
       "fn:run_dataset.py:main",
@@ -140,10 +140,11 @@
     "Dataset/sample_seeds.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Stratified seed sampling from all four benchmarks with fixed RNG seed; produces main (870) and dev (50) seed sets.",
+      "purpose": "Stratified seed sampling from BBQ+CrowS+StereoSet for main set; WinoBias is quarantined to winobias_heldout.parquet (held out for predictive validity only, never audited). Normalises seed_category to a 10-value canonical vocabulary (fixes B2/B6).",
       "exports": [
         "fn:Dataset/sample_seeds.py:sample_seeds",
-        "fn:Dataset/sample_seeds.py:verify_seeds_integrity"
+        "fn:Dataset/sample_seeds.py:verify_seeds_integrity",
+        "const:Dataset/sample_seeds.py:SEED_CATEGORY_CANONICAL"
       ],
       "imports_internal": [
         "config.py",
@@ -154,15 +155,17 @@
       ],
       "imports_external": ["pandas", "numpy", "hashlib", "uuid"],
       "tags": ["seeds", "sampling", "reproducibility"],
-      "loc": 190
+      "loc": 289
     },
     "Dataset/pentad_generator.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Generates all 12 pentad probe variants per seed: slots a/b/c deterministically (bidirectional category matching, dedup, clean c_<token> naming, 5-item equiv-set padding), slots d/e via DeepSeek API.",
+      "purpose": "Source-aware pentad probe generation: slot-a/b/c build full context+question+options per source (BBQ MCQ, CrowS binary choice, StereoSet 3-way, WinoBias cleaned coreference). Stores gold_answer in every row. Swap in slot-c operates on the full prompt text (fixes A1/A2/A3/A4). Equivalence-set routing uses CATEGORY_TO_EQUIV_SET canonical map (fixes B6).",
       "exports": [
         "fn:Dataset/pentad_generator.py:generate_pentad_deterministic",
-        "fn:Dataset/pentad_generator.py:build_pentad_dataset"
+        "fn:Dataset/pentad_generator.py:build_pentad_dataset",
+        "fn:Dataset/pentad_generator.py:_build_full_prompt",
+        "const:Dataset/pentad_generator.py:CATEGORY_TO_EQUIV_SET"
       ],
       "imports_internal": [
         "config.py",
@@ -170,9 +173,9 @@
         "Dataset/cot_attack_generator.py",
         "Dataset/equivalence_sets.yaml"
       ],
-      "imports_external": ["pandas", "numpy", "yaml", "uuid"],
-      "tags": ["pentad", "probe-generation", "dataset"],
-      "loc": 270
+      "imports_external": ["pandas", "numpy", "yaml", "uuid", "re", "json"],
+      "tags": ["pentad", "probe-generation", "dataset", "gold-answer"],
+      "loc": 441
     },
     "Dataset/cot_attack_generator.py": {
       "language": "python",
@@ -197,16 +200,20 @@
     "Dataset/validate_pentad.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Schema and completeness validation for the pentad probe dataset: REQUIRED_SLOT_SUBVARIANTS per-(slot,subvariant) existence checks + slot-c count (=5) + total count (=12). Fails loudly on any integrity violation.",
+      "purpose": "Hardened pentad validation with semantic gates (fixes C1): rejects None/nan sentinel prompts; asserts slot-b differs from slot-a for >50% of seeds; asserts slot-c has 5 distinct texts; verifies MCQ sources include answer options. Raises loud failures so broken datasets cannot proceed to evaluation.",
       "exports": [
         "fn:Dataset/validate_pentad.py:validate_schema",
         "fn:Dataset/validate_pentad.py:validate_completeness",
+        "fn:Dataset/validate_pentad.py:validate_no_sentinel_prompts",
+        "fn:Dataset/validate_pentad.py:validate_b_differs_from_a",
+        "fn:Dataset/validate_pentad.py:validate_c_variants_distinct",
+        "fn:Dataset/validate_pentad.py:validate_mcq_options_present",
         "fn:Dataset/validate_pentad.py:run_all_validations"
       ],
       "imports_internal": ["config.py"],
-      "imports_external": ["pandas"],
-      "tags": ["validation", "pentad"],
-      "loc": 145
+      "imports_external": ["pandas", "re"],
+      "tags": ["validation", "pentad", "semantic-gates"],
+      "loc": 261
     },
     "Dataset/equivalence_sets.yaml": {
       "language": "yaml",
@@ -262,10 +269,12 @@
     "GPU_CPU/cdva_patching.py": {
       "language": "python",
       "layer": "ml_model",
-      "purpose": "CDVA: computes C(5,2)=10 pairwise activation-patch scores for slot-c variants per seed; produces cdva_results.parquet.",
+      "purpose": "CDVA: computes C(5,2)=10 pairwise activation-patch scores for slot-c variants per seed. Fixes A5: bias_answer taken from gold_answer per seed (not hard-coded 'Yes'); identical-prompt pairs are skipped with failure_reason='identical_prompts'; global CDVA_GLOBAL_SCALE=5.0 replaces within-seed max normalization (which forced largest pair to score 0).",
       "exports": [
         "fn:GPU_CPU/cdva_patching.py:run_cdva_for_seed",
-        "fn:GPU_CPU/cdva_patching.py:run_cdva_audit"
+        "fn:GPU_CPU/cdva_patching.py:compute_cdva_seed_score",
+        "fn:GPU_CPU/cdva_patching.py:run_cdva",
+        "const:GPU_CPU/cdva_patching.py:CDVA_GLOBAL_SCALE"
       ],
       "imports_internal": [
         "config.py",
@@ -273,7 +282,7 @@
       ],
       "imports_external": ["pandas", "itertools"],
       "tags": ["cdva", "activation-patching", "discriminative-validity"],
-      "loc": 200
+      "loc": 265
     },
     "GPU_CPU/cdva_calibration.py": {
       "language": "python",
@@ -331,10 +340,11 @@
     "CPU_Only/api_behavioral.py": {
       "language": "python",
       "layer": "research",
-      "purpose": "Behavioral inference of the 4 API models on the pentad probe set; routes to bedrock/gemini/mistral clients; produces behavioral_results.parquet with resume support. _SYSTEM_PROMPT references RESEARCH_SYSTEM_PROMPT from config.",
+      "purpose": "Behavioral inference of the 4 API models on the pentad probe set. Two passes: (1) deterministic (temp=0.0, all slots, sample_index=0); (2) FM4 variance pass (temp=0.7, slot-a only, sample_index=1..5, fixes B5). Copies gold_answer from pentad_df into every result row. Skips None/empty prompts.",
       "exports": [
         "fn:CPU_Only/api_behavioral.py:evaluate_api_model",
-        "fn:CPU_Only/api_behavioral.py:run_api_behavioral"
+        "fn:CPU_Only/api_behavioral.py:run_api_behavioral",
+        "fn:CPU_Only/api_behavioral.py:_evaluate_single_prompt"
       ],
       "imports_internal": [
         "config.py",
@@ -344,8 +354,8 @@
         "CPU_Only/judge_router.py"
       ],
       "imports_external": ["pandas", "json", "time"],
-      "tags": ["behavioral-eval", "api-models", "inference"],
-      "loc": 220
+      "tags": ["behavioral-eval", "api-models", "inference", "fm4-variance"],
+      "loc": 284
     },
     "CPU_Only/judge_router.py": {
       "language": "python",
@@ -364,15 +374,17 @@
     "CPU_Only/scoring.py": {
       "language": "python",
       "layer": "research",
-      "purpose": "Computes MIRAGE-B (behavioral pass) and MIRAGE-Full (behavioral + CDVA) per (seed_id x model_name) pair.",
+      "purpose": "Computes MIRAGE-B and MIRAGE-Full per (seed_id x model_name) pair. Correctness is now evaluated against gold_answer from the behavioral_df (fixes A6): correct(a/b) requires parsed_answer matches gold; behavioral_stable(c) majority-votes DISTINCT c-texts; cot_robust(e) checks majority answer matches gold.",
       "exports": [
         "fn:CPU_Only/scoring.py:compute_mirage_b",
-        "fn:CPU_Only/scoring.py:compute_mirage_full"
+        "fn:CPU_Only/scoring.py:compute_mirage_full",
+        "fn:CPU_Only/scoring.py:score_all",
+        "fn:CPU_Only/scoring.py:_answers_match"
       ],
       "imports_internal": ["config.py"],
       "imports_external": ["pandas"],
-      "tags": ["scoring", "mirage-b", "mirage-full"],
-      "loc": 120
+      "tags": ["scoring", "mirage-b", "mirage-full", "gold-answer"],
+      "loc": 179
     },
     "CPU_Only/statistics.py": {
       "language": "python",
@@ -393,11 +405,15 @@
     "CPU_Only/leaderboard.py": {
       "language": "python",
       "layer": "research",
-      "purpose": "Aggregates audit results into per-benchmark validity vectors for FM1-FM5 failure modes; produces 4x5 leaderboard matrix.",
-      "exports": ["fn:CPU_Only/leaderboard.py:compute_leaderboard"],
-      "imports_internal": ["config.py"],
+      "purpose": "Aggregates audit results into per-benchmark FM1-FM5 validity vectors. FM definitions now use answer CORRECTNESS against gold_answer (fixes B4): FM1=correct(a)+wrong(b); FM3=correct(a/b)+wrong(d_valid); FM5=correct(a-d)+wrong(e). WinoBias removed from BENCHMARKS list.",
+      "exports": [
+        "fn:CPU_Only/leaderboard.py:build_leaderboard",
+        "const:CPU_Only/leaderboard.py:BENCHMARKS",
+        "const:CPU_Only/leaderboard.py:FAILURE_MODES"
+      ],
+      "imports_internal": ["config.py", "CPU_Only/scoring.py"],
       "imports_external": ["pandas"],
-      "tags": ["leaderboard", "failure-modes", "fm1-fm5"],
+      "tags": ["leaderboard", "failure-modes", "fm1-fm5", "correctness"],
       "loc": 200
     },
     "CPU_Only/predictive_validity.py": {

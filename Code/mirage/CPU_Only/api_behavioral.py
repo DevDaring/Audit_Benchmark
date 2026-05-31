@@ -3,6 +3,15 @@ File: CPU_Only/api_behavioral.py
 Purpose: Behavioral evaluation across the 4 API models with retry/fallback
          policy specified in spec Section 4.2.
 
+Temperature-variance pass (FM4):
+  After the deterministic pass (sample_index=0, temperature=0.0), a second
+  pass runs slot-a 5 times at temperature=0.7 (sample_index 1-5).  This
+  provides data for FM4 (criterion leakage / answer variance under sampling).
+  Previously this pass was absent for API models (review finding B5).
+
+gold_answer is copied from pentad_df into every behavioral result row so
+that scoring.py can compare parsed_answer to gold_answer without a join.
+
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
   - Parrish et al. (2022). BBQ. Findings of ACL 2022.
@@ -31,6 +40,10 @@ _BEHAVIORAL_PATH = RESULTS_DIR / "behavioral_results.parquet"
 
 _SYSTEM_PROMPT = RESEARCH_SYSTEM_PROMPT
 
+# Number of stochastic samples for the FM4 variance pass (slot-a only)
+_FM4_N_SAMPLES = 5
+_FM4_TEMPERATURE = 0.7
+
 
 def _repair_json(raw: str) -> dict | None:
     raw = raw.strip()
@@ -49,20 +62,25 @@ def _build_messages(prompt_text: str) -> list[dict]:
     ]
 
 
-def _call_api_model(model_cfg: dict, messages: list[dict], max_tokens: int) -> dict[str, Any]:
+def _call_api_model(
+    model_cfg: dict,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0.0,
+) -> dict[str, Any]:
     """Route to the appropriate client based on primary_route."""
     primary = model_cfg["primary_route"]
     model_id = model_cfg["model_id"]
 
     if primary == "bedrock":
         from CPU_Only.api_clients.bedrock_client import call_bedrock_with_fallback
-        return call_bedrock_with_fallback(model_id, messages, max_tokens)
+        return call_bedrock_with_fallback(model_id, messages, max_tokens, temperature=temperature)
     elif primary == "gcp":
         from CPU_Only.api_clients.gemini_client import call_gemini_with_roundrobin
-        return call_gemini_with_roundrobin(messages, max_tokens)
+        return call_gemini_with_roundrobin(messages, max_tokens, temperature=temperature)
     elif primary == "mistral":
         from CPU_Only.api_clients.mistral_client import call_mistral_with_roundrobin
-        return call_mistral_with_roundrobin(messages, max_tokens)
+        return call_mistral_with_roundrobin(messages, max_tokens, temperature=temperature)
     else:
         raise ValueError(f"Unknown primary_route: '{primary}'")
 
@@ -72,21 +90,93 @@ def _parse_response(raw: str, prompt_id: str) -> tuple[dict | None, str]:
     if not raw:
         return None, "failed"
 
-    # Direct parse
     try:
         return json.loads(raw), "json"
     except json.JSONDecodeError:
         pass
 
-    # Repair attempt
     repaired = _repair_json(raw)
     if repaired is not None:
         return repaired, "json"
 
-    # Judge (default: gemini)
     from CPU_Only.judge_router import judge
     parsed, method = judge(raw, provider="gemini")
     return parsed, method
+
+
+def _evaluate_single_prompt(
+    model_cfg: dict,
+    prompt_id: str,
+    prompt_text: str,
+    gold_answer: str,
+    run_id: str,
+    seed_id: str,
+    seed_source: str,
+    seed_category: str,
+    seed_subcategory: str,
+    slot: str,
+    subvariant: str,
+    max_tokens: int,
+    sample_index: int,
+    temperature: float,
+) -> dict:
+    """Run a single API call and return a result row dict."""
+    messages = _build_messages(prompt_text)
+    t0 = time.monotonic()
+    api_result = _call_api_model(model_cfg, messages, max_tokens, temperature=temperature)
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    model_name = model_cfg["name"]
+    raw = api_result.get("raw_response", "")
+    parsed = None
+    parse_method = "failed"
+    parsed_answer = ""
+    parsed_confidence = 0.0
+    parsed_rationale = ""
+    success_flag = api_result.get("success_flag", False)
+    failure_reason = api_result.get("failure_reason", "")
+
+    if success_flag and raw:
+        parsed, parse_method = _parse_response(raw, prompt_id)
+        if parsed:
+            parsed_answer = str(parsed.get("answer", ""))
+            parsed_confidence = float(parsed.get("confidence", 0.0))
+            parsed_rationale = str(parsed.get("rationale", ""))
+        else:
+            parse_method = "failed"
+            success_flag = False
+            failure_reason = "parse_error"
+
+    return {
+        "run_id": run_id,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "seed_id": seed_id,
+        "seed_source": seed_source,
+        "seed_category": seed_category,
+        "seed_subcategory": seed_subcategory,
+        "prompt_id": prompt_id,
+        "slot": slot,
+        "subvariant": subvariant,
+        "model_name": model_name,
+        "model_provider": model_cfg.get("primary_route", ""),
+        "model_version": model_cfg.get("model_id", ""),
+        "route_used": api_result.get("route_used", ""),
+        "key_index": api_result.get("key_index", -1),
+        "attempt_count": api_result.get("attempt_count", 1),
+        "prompt_text": prompt_text,
+        "gold_answer": gold_answer,
+        "raw_response": raw,
+        "parsed_answer": parsed_answer,
+        "parsed_confidence": parsed_confidence,
+        "parsed_rationale": parsed_rationale,
+        "parse_method": parse_method,
+        "success_flag": success_flag,
+        "failure_reason": failure_reason,
+        "latency_ms": api_result.get("latency_ms", latency_ms),
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "sample_index": sample_index,
+    }
 
 
 def evaluate_api_model(
@@ -96,10 +186,19 @@ def evaluate_api_model(
     completed_keys: set[tuple],
     max_tokens: int = 256,
     sample_index: int = 0,
+    temperature: float = 0.0,
 ) -> pd.DataFrame:
     """
     Evaluate a single API model on the pentad dataset.
     Skips rows already present in completed_keys.
+
+    Parameters
+    ----------
+    sample_index : int
+        0 = deterministic pass (temperature=0.0).
+        1-5 = stochastic FM4 pass (temperature=0.7, slot-a only).
+    temperature : float
+        Sampling temperature.  0.0 for deterministic, 0.7 for FM4 pass.
     """
     model_name = model_cfg["name"]
     rows: list[dict] = []
@@ -107,72 +206,49 @@ def evaluate_api_model(
 
     for i, (_, prow) in enumerate(pentad_df.iterrows()):
         prompt_id = prow["prompt_id"]
+        slot = prow.get("slot", "")
+        subvariant = prow.get("subvariant", "")
+
+        # FM4 variance pass only runs on slot-a
+        if sample_index > 0 and slot != "a":
+            continue
+
         if (prompt_id, model_name, sample_index) in completed_keys:
             continue
 
         prompt_text = str(prow.get("prompt_text", ""))
-        if not prompt_text.strip():
+        if not prompt_text.strip() or prompt_text.strip().lower() == "none":
+            logger.debug(
+                "Skipping invalid prompt_text for prompt_id=%s (value=%r)",
+                prompt_id, prompt_text[:80],
+            )
             continue
 
-        messages = _build_messages(prompt_text)
-        t0 = time.monotonic()
-        api_result = _call_api_model(model_cfg, messages, max_tokens)
-        latency_ms = int((time.monotonic() - t0) * 1000)
+        gold_answer = str(prow.get("gold_answer", ""))
 
-        raw = api_result.get("raw_response", "")
-        parsed = None
-        parse_method = "failed"
-        parsed_answer = ""
-        parsed_confidence = 0.0
-        parsed_rationale = ""
-        success_flag = api_result.get("success_flag", False)
-        failure_reason = api_result.get("failure_reason", "")
-
-        if success_flag and raw:
-            parsed, parse_method = _parse_response(raw, prompt_id)
-            if parsed:
-                parsed_answer = str(parsed.get("answer", ""))
-                parsed_confidence = float(parsed.get("confidence", 0.0))
-                parsed_rationale = str(parsed.get("rationale", ""))
-            else:
-                parse_method = "failed"
-                success_flag = False
-                failure_reason = "parse_error"
-
-        rows.append(
-            {
-                "run_id": run_id,
-                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-                "seed_id": prow.get("seed_id", ""),
-                "seed_source": prow.get("seed_source", ""),
-                "seed_category": prow.get("seed_category", ""),
-                "seed_subcategory": prow.get("seed_subcategory", ""),
-                "prompt_id": prompt_id,
-                "slot": prow.get("slot", ""),
-                "subvariant": prow.get("subvariant", ""),
-                "model_name": model_name,
-                "model_provider": model_cfg.get("primary_route", ""),
-                "model_version": model_cfg.get("model_id", ""),
-                "route_used": api_result.get("route_used", ""),
-                "key_index": api_result.get("key_index", -1),
-                "attempt_count": api_result.get("attempt_count", 1),
-                "prompt_text": prompt_text,
-                "raw_response": raw,
-                "parsed_answer": parsed_answer,
-                "parsed_confidence": parsed_confidence,
-                "parsed_rationale": parsed_rationale,
-                "parse_method": parse_method,
-                "success_flag": success_flag,
-                "failure_reason": failure_reason,
-                "latency_ms": api_result.get("latency_ms", latency_ms),
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-                "sample_index": sample_index,
-            }
+        row = _evaluate_single_prompt(
+            model_cfg=model_cfg,
+            prompt_id=prompt_id,
+            prompt_text=prompt_text,
+            gold_answer=gold_answer,
+            run_id=run_id,
+            seed_id=str(prow.get("seed_id", "")),
+            seed_source=str(prow.get("seed_source", "")),
+            seed_category=str(prow.get("seed_category", "")),
+            seed_subcategory=str(prow.get("seed_subcategory", "")),
+            slot=slot,
+            subvariant=subvariant,
+            max_tokens=max_tokens,
+            sample_index=sample_index,
+            temperature=temperature,
         )
+        rows.append(row)
 
         if (i + 1) % 50 == 0:
-            logger.info("API %s: %d/%d prompts done.", model_name, i + 1, total)
+            logger.info(
+                "API %s (sample_index=%d): %d/%d prompts done.",
+                model_name, sample_index, i + 1, total,
+            )
 
     return pd.DataFrame(rows)
 
@@ -184,6 +260,11 @@ def run_api_behavioral(
 ) -> pd.DataFrame:
     """
     Run behavioral evaluation for all 4 API models with resume logic.
+
+    Two passes per model:
+      Pass 1 (sample_index=0, temp=0.0): all slots.
+      Pass 2 (sample_index=1..5, temp=0.7): slot-a only (FM4 variance).
+
     Appends to existing behavioral_results.parquet.
     """
     ensure_dirs()
@@ -202,13 +283,38 @@ def run_api_behavioral(
     all_rows: list[pd.DataFrame] = [existing] if len(existing) > 0 else []
 
     for model_cfg in API_MODELS:
-        logger.info("API evaluation: model=%s ...", model_cfg["name"])
-        result_df = evaluate_api_model(model_cfg, pentad_df, run_id, completed_keys, max_tokens)
+        model_name = model_cfg["name"]
+        logger.info("API evaluation: model=%s ...", model_name)
+
+        # Pass 1: deterministic (all slots, sample_index=0, temp=0.0)
+        result_df = evaluate_api_model(
+            model_cfg, pentad_df, run_id, completed_keys,
+            max_tokens=max_tokens, sample_index=0, temperature=0.0,
+        )
         if len(result_df) > 0:
             all_rows.append(result_df)
             combined = pd.concat(all_rows, ignore_index=True)
             combined.to_parquet(_BEHAVIORAL_PATH, index=False)
-            logger.info("  Saved %d new rows for %s.", len(result_df), model_cfg["name"])
+            logger.info("  Saved %d new rows for %s (deterministic pass).", len(result_df), model_name)
+
+        # Pass 2: stochastic FM4 variance (slot-a only, 5 samples at temp=0.7)
+        logger.info("  FM4 variance pass: model=%s, %d samples at temp=%.1f ...",
+                    model_name, _FM4_N_SAMPLES, _FM4_TEMPERATURE)
+        for sample_idx in range(1, _FM4_N_SAMPLES + 1):
+            var_df = evaluate_api_model(
+                model_cfg, pentad_df, run_id, completed_keys,
+                max_tokens=max_tokens,
+                sample_index=sample_idx,
+                temperature=_FM4_TEMPERATURE,
+            )
+            if len(var_df) > 0:
+                all_rows.append(var_df)
+                combined = pd.concat(all_rows, ignore_index=True)
+                combined.to_parquet(_BEHAVIORAL_PATH, index=False)
+                logger.info(
+                    "    Saved %d rows for %s (sample_index=%d).",
+                    len(var_df), model_name, sample_idx,
+                )
 
     final = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
     if len(final) > 0:
@@ -218,7 +324,6 @@ def run_api_behavioral(
             .reset_index(drop=True)
         )
 
-        # Integrity check
         dupes = final[final.duplicated(subset=["prompt_id", "model_name", "sample_index"], keep=False)]
         if len(dupes) > 0:
             raise RuntimeError(
