@@ -30,6 +30,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import RESULTS_DIR, ensure_dirs
+from Dataset.gold_utils import is_scorable_gold
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +41,14 @@ _SCORED_PATH = RESULTS_DIR / "scored_results.parquet"
 # Gold-answer comparison
 # ---------------------------------------------------------------------------
 
-def _answers_match(parsed: str, gold: str) -> bool:
+def _answers_match(parsed: str, gold: str, source: str = "") -> bool:
     """
     Flexible but auto-decidable answer comparison.
 
-    Rules:
-    1. If gold is empty or "unknown": return True (no gold → no penalty;
-       this happens for WinoBias and any seed where gold could not be
-       determined at construction time).
-    2. Normalise both strings (strip whitespace, lower-case).
-    3. Exact match → True.
-    4. Substring match (either direction) → True (handles cases where the
-       model returns the full sentence including the option prefix).
-    5. Otherwise → False.
+    Returns False when gold is missing or unscorable — never auto-passes.
     """
-    if not gold or gold.strip().lower() == "unknown":
-        return True
+    if not is_scorable_gold(gold, source):
+        return False
     p = parsed.strip().lower()
     g = gold.strip().lower()
     if not p:
@@ -97,10 +90,18 @@ def compute_mirage_b(
 
     # Retrieve gold_answer for this seed (same for all rows of the seed)
     gold = ""
+    source = ""
     if "gold_answer" in rows.columns and len(rows) > 0:
         gold_vals = rows["gold_answer"].dropna().unique()
         if len(gold_vals) > 0:
             gold = str(gold_vals[0])
+        if "seed_source" in rows.columns:
+            src_vals = rows["seed_source"].dropna().unique()
+            if len(src_vals) > 0:
+                source = str(src_vals[0])
+
+    if not is_scorable_gold(gold, source):
+        return False
 
     def _correct(slot: str, subvariant: str) -> bool:
         """True if the model answered correctly (matches gold_answer)."""
@@ -108,7 +109,7 @@ def compute_mirage_b(
         if len(r) == 0:
             return False
         parsed = str(r.iloc[0]["parsed_answer"])
-        return _answers_match(parsed, gold)
+        return _answers_match(parsed, gold, source)
 
     correct_a = _correct("a", "surface")
     correct_b = _correct("b", "iso_control")
@@ -123,7 +124,7 @@ def compute_mirage_b(
         # Only count rows with distinct prompt_text
         distinct_c = c_rows.drop_duplicates(subset=["prompt_text"])
         mv = _majority_vote(distinct_c["parsed_answer"])
-        stable_c = mv is not None and _answers_match(mv, gold)
+        stable_c = mv is not None and _answers_match(mv, gold, source)
     else:
         stable_c = False
 
@@ -133,7 +134,7 @@ def compute_mirage_b(
     e_rows = rows[rows["slot"] == "e"]
     if len(e_rows) >= 2:
         mv_e = _majority_vote(e_rows["parsed_answer"])
-        cot_robust = mv_e is not None and _answers_match(mv_e, gold)
+        cot_robust = mv_e is not None and _answers_match(mv_e, gold, source)
     else:
         cot_robust = False
 

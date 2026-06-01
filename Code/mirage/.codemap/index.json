@@ -3,7 +3,7 @@
     "schema_version": "1.0",
     "project_name": "MIRAGE",
     "project_kind": "research",
-    "last_updated": "2026-05-31T14:00:00Z",
+    "last_updated": "2026-06-01T00:30:00Z",
     "updated_by": "cursor",
     "languages": ["python", "yaml"],
     "primary_entry_points": [
@@ -160,7 +160,7 @@
     "Dataset/pentad_generator.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Source-aware pentad probe generation: slot-a/b/c build full context+question+options per source (BBQ MCQ, CrowS binary choice, StereoSet 3-way, WinoBias cleaned coreference). Stores gold_answer in every row. Swap in slot-c operates on the full prompt text (fixes A1/A2/A3/A4). Equivalence-set routing uses CATEGORY_TO_EQUIV_SET canonical map (fixes B6).",
+      "purpose": "Source-aware pentad probe generation: slot-a/b/c build full context+question+options per source (BBQ MCQ, CrowS binary choice, StereoSet 3-way, WinoBias cleaned coreference). Slot-b iso-control neutralization: BBQ Person A/B/C, CrowS/StereoSet surface expansion, plural terms (People are), Context: A person polish. Stores gold_answer in every row.",
       "exports": [
         "fn:Dataset/pentad_generator.py:generate_pentad_deterministic",
         "fn:Dataset/pentad_generator.py:build_pentad_dataset",
@@ -180,7 +180,7 @@
     "Dataset/cot_attack_generator.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Generates slot-e CoT-attack prompts (e1_neutral, e2_stereo_push, e3_antistereo_push) via DeepSeek API with round-robin key rotation. Per-seed JSON checkpointing to cot_attack_checkpoint.json; safe to interrupt and resume.",
+      "purpose": "Generates slot-e CoT-attack prompts (e1_neutral, e2_stereo_push, e3_antistereo_push) via DeepSeek API with 2 parallel workers (DEEPSEEK_API_KEY + DEEPSEEK_API_KEY_2), per-key fallback, 5 retries. Per-seed JSON checkpointing to cot_attack_checkpoint.json; safe to interrupt and resume.",
       "exports": ["fn:Dataset/cot_attack_generator.py:generate_cot_attacks"],
       "imports_internal": ["config.py"],
       "imports_external": ["openai", "pandas", "json", "uuid"],
@@ -190,7 +190,7 @@
     "Dataset/context_shift_drafter.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Generates slot-d context-shift prompts (d_valid, d_harmful) via DeepSeek API with round-robin key rotation. Per-seed JSON checkpointing to context_shift_checkpoint.json; safe to interrupt and resume.",
+      "purpose": "Generates slot-d context-shift prompts (d_valid, d_harmful) via DeepSeek API with 2 parallel workers (DEEPSEEK_API_KEY + DEEPSEEK_API_KEY_2), per-key fallback, 5 retries. Per-seed JSON checkpointing to context_shift_checkpoint.json; safe to interrupt and resume.",
       "exports": ["fn:Dataset/context_shift_drafter.py:draft_context_shifts"],
       "imports_internal": ["config.py"],
       "imports_external": ["openai", "pandas", "json", "uuid"],
@@ -200,7 +200,7 @@
     "Dataset/validate_pentad.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Hardened pentad validation with semantic gates (fixes C1): rejects None/nan sentinel prompts; asserts slot-b differs from slot-a for >50% of seeds; asserts slot-c has 5 distinct texts; verifies MCQ sources include answer options. Raises loud failures so broken datasets cannot proceed to evaluation.",
+      "purpose": "Hardened pentad validation: schema, completeness, sentinel rejection, slot-b grammar (validate_slot_b_grammar), slot-a/b/c semantic gates, MCQ options, DeepSeek embed check, production gate (assert_production_ready for N=596×12=7152). Raises loud failures so broken datasets cannot proceed to evaluation.",
       "exports": [
         "fn:Dataset/validate_pentad.py:validate_schema",
         "fn:Dataset/validate_pentad.py:validate_completeness",
@@ -208,6 +208,8 @@
         "fn:Dataset/validate_pentad.py:validate_b_differs_from_a",
         "fn:Dataset/validate_pentad.py:validate_c_variants_distinct",
         "fn:Dataset/validate_pentad.py:validate_mcq_options_present",
+        "fn:Dataset/validate_pentad.py:validate_slot_b_grammar",
+        "fn:Dataset/validate_pentad.py:assert_production_ready",
         "fn:Dataset/validate_pentad.py:run_all_validations"
       ],
       "imports_internal": ["config.py"],
@@ -527,7 +529,7 @@
     "run_dataset.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Single entry-point for full 668-seed MIRAGE dataset build. Steps: (1) sample seeds, (2) build_pentad_dataset (det + DeepSeek), (3) run_all_validations. Supports --det-only and --force flags. Expected output: 668Ã—12=8016 rows in Dataset/seeds/pentad_dataset.parquet.",
+      "purpose": "Single entry-point for full audit-seed MIRAGE dataset build (N=596). Steps: (1) sample seeds, (2) build_pentad_dataset (det + DeepSeek), (3) run_all_validations. Supports --det-only and --force flags. Expected output: 596×12=7152 rows in Dataset/seeds/pentad_dataset.parquet.",
       "exports": ["fn:run_dataset.py:main"],
       "imports_internal": ["config.py", "logger_setup.py", "Dataset/sample_seeds.py", "Dataset/pentad_generator.py", "Dataset/validate_pentad.py"],
       "imports_external": ["argparse", "logging"],
@@ -537,12 +539,32 @@
     "patch_det_slots.py": {
       "language": "python",
       "layer": "data_pipeline",
-      "purpose": "Patches deterministic slots (a/b/c) in an existing pentad_dataset.parquet without rerunning DeepSeek API. Use after fixing equivalence_sets.yaml when slot-c counts were wrong. Preserves all API rows (d/e).",
+      "purpose": "Rebuilds deterministic slots (a/b/c) from seeds.parquet. Saves det-only pentad and DROPS all d/e rows until regenerate_api_slots completes. Orchestrator skips this when _det_slots_valid() passes. Use patch_slot_b_only.py for iso-control-only fixes.",
       "exports": ["fn:patch_det_slots.py:main"],
       "imports_internal": ["config.py", "logger_setup.py", "Dataset/sample_seeds.py", "Dataset/pentad_generator.py", "Dataset/validate_pentad.py"],
       "imports_external": ["pandas", "numpy"],
       "tags": ["patch", "dataset-build", "utility"],
       "loc": 115
+    },
+    "patch_slot_b_only.py": {
+      "language": "python",
+      "layer": "data_pipeline",
+      "purpose": "Patches only slot-b (iso-control) rows in pentad_dataset.parquet. Preserves slot-a, slot-c, and all DeepSeek slots d/e — no API calls when slot-a text unchanged.",
+      "exports": ["fn:patch_slot_b_only.py:main"],
+      "imports_internal": ["config.py", "logger_setup.py", "Dataset/pentad_generator.py"],
+      "imports_external": ["pandas"],
+      "tags": ["patch", "dataset-build", "slot-b", "utility"],
+      "loc": 112
+    },
+    "regenerate_api_slots.py": {
+      "language": "python",
+      "layer": "data_pipeline",
+      "purpose": "Regenerates DeepSeek slots d/e after deterministic patch. Incremental pentad save after slot-d (_save_partial_pentad). --keep-checkpoint for resume. Clears checkpoints on fresh run.",
+      "exports": ["fn:regenerate_api_slots.py:main", "fn:regenerate_api_slots.py:_save_partial_pentad"],
+      "imports_internal": ["config.py", "logger_setup.py", "Dataset/context_shift_drafter.py", "Dataset/cot_attack_generator.py", "Dataset/validate_pentad.py"],
+      "imports_external": ["pandas", "argparse"],
+      "tags": ["regen", "deepseek", "checkpointing", "dataset-build"],
+      "loc": 148
     },
     "repair_empty_d_slots.py": {
       "language": "python",
@@ -948,7 +970,7 @@
       "file": "Dataset/cot_attack_generator.py",
       "lines": [100, 165],
       "layer": "data_pipeline",
-      "purpose": "Generates slot-e CoT-attack prompts (e1_neutral, e2_stereo_push, e3_antistereo_push) for all seeds via DeepSeek API with round-robin key rotation.",
+      "purpose": "Generates slot-e CoT-attack prompts (e1_neutral, e2_stereo_push, e3_antistereo_push) for all seeds via DeepSeek API with 2 parallel workers and dual-key fallback.",
       "signature": "generate_cot_attacks(seeds_df: pd.DataFrame) -> list[dict]",
       "params": [{"name": "seeds_df", "type": "pd.DataFrame", "doc": "Seeds to generate CoT attacks for"}],
       "returns": {"type": "list[dict]", "doc": "3 row dicts per seed (e1, e2, e3)"},
@@ -965,7 +987,7 @@
       "file": "Dataset/context_shift_drafter.py",
       "lines": [83, 155],
       "layer": "data_pipeline",
-      "purpose": "Generates slot-d context-shift prompts (d_valid, d_harmful) for all seeds via DeepSeek API with round-robin key rotation.",
+      "purpose": "Generates slot-d context-shift prompts (d_valid, d_harmful) for all seeds via DeepSeek API with 2 parallel workers and dual-key fallback.",
       "signature": "draft_context_shifts(seeds_df: pd.DataFrame) -> list[dict]",
       "params": [{"name": "seeds_df", "type": "pd.DataFrame", "doc": "Seeds to generate context shifts for"}],
       "returns": {"type": "list[dict]", "doc": "2 row dicts per seed (d_valid, d_harmful)"},
@@ -995,6 +1017,43 @@
       "visibility": "public",
       "tags": ["validation", "pentad"],
       "semantic_signature": "pentad-full-validation-runner"
+    },
+    "fn:Dataset/validate_pentad.py:validate_slot_b_grammar": {
+      "kind": "function",
+      "name": "validate_slot_b_grammar",
+      "file": "Dataset/validate_pentad.py",
+      "lines": [388, 450],
+      "layer": "data_pipeline",
+      "purpose": "Rejects ungrammatical slot-b iso-controls: Person and Person, person man, Context: person, person are, etc.",
+      "signature": "validate_slot_b_grammar(df: pd.DataFrame) -> None",
+      "params": [{"name": "df", "type": "pd.DataFrame", "doc": "Pentad dataset with slot-b rows"}],
+      "returns": {"type": "None", "doc": "Raises ValueError on grammar violations"},
+      "calls": [],
+      "side_effects": ["pure"],
+      "async": false,
+      "visibility": "public",
+      "tags": ["validation", "pentad", "slot-b"],
+      "semantic_signature": "slot-b-grammar-validator"
+    },
+    "fn:Dataset/validate_pentad.py:assert_production_ready": {
+      "kind": "function",
+      "name": "assert_production_ready",
+      "file": "Dataset/validate_pentad.py",
+      "lines": [494, 560],
+      "layer": "data_pipeline",
+      "purpose": "Hard production gate before GPU: N=596 audit seeds, 7152 rows, all slots, slot-b grammar, no WinoBias, scorable gold, DeepSeek embed check.",
+      "signature": "assert_production_ready(df: pd.DataFrame | None = None) -> None",
+      "params": [{"name": "df", "type": "pd.DataFrame | None", "doc": "Pentad dataset; loads from disk if None"}],
+      "returns": {"type": "None", "doc": "Raises on any production violation"},
+      "calls": [
+        "fn:Dataset/validate_pentad.py:validate_slot_b_grammar",
+        "fn:Dataset/validate_pentad.py:run_all_validations"
+      ],
+      "side_effects": ["reads file"],
+      "async": false,
+      "visibility": "public",
+      "tags": ["validation", "pentad", "production-gate"],
+      "semantic_signature": "pentad-production-ready-gate"
     },
     "fn:GPU_CPU/load_osm.py:load_model": {
       "kind": "function",
@@ -1802,7 +1861,7 @@
       "reproducibility":      ["fn:Dataset/sample_seeds.py:sample_seeds", "fn:Dataset/sample_seeds.py:verify_seeds_integrity"],
       "statistics":           ["fn:CPU_Only/statistics.py:bootstrap_ci", "fn:CPU_Only/statistics.py:mcnemar_paired"],
       "visualisation":        ["fn:CPU_Only/results_analysis.py:plot_mirage_b_pass_rates", "fn:CPU_Only/results_analysis.py:plot_cdva_distribution"],
-      "validation":           ["fn:Dataset/download_bbq.py:validate_bbq", "fn:Dataset/download_crows_pairs.py:validate_crows_pairs", "fn:Dataset/download_stereoset.py:validate_stereoset", "fn:Dataset/download_winobias.py:validate_winobias", "fn:Dataset/validate_pentad.py:run_all_validations"]
+      "validation":           ["fn:Dataset/download_bbq.py:validate_bbq", "fn:Dataset/download_crows_pairs.py:validate_crows_pairs", "fn:Dataset/download_stereoset.py:validate_stereoset", "fn:Dataset/download_winobias.py:validate_winobias", "fn:Dataset/validate_pentad.py:run_all_validations", "fn:Dataset/validate_pentad.py:validate_slot_b_grammar", "fn:Dataset/validate_pentad.py:assert_production_ready"]
     },
     "by_semantic_signature": {
       "bbq-dataset-downloader-cacher":                ["fn:Dataset/download_bbq.py:download_bbq"],

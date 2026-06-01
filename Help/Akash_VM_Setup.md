@@ -1,8 +1,8 @@
 # Akash GPU VM Setup — MIRAGE Project
-### Complete Field Guide: Deployment, Package Installation, Flash Attention, and Running Code
+### Complete Field Guide: Deployment, Persistent Storage, Pipeline Checkpoints, Dataset Validation, and GPU Execution
 
-*Written after working through every failure mode end-to-end on live deployments.
-Every "Issue" section describes something that actually broke, was debugged, and was fixed.*
+*Production reference for MIRAGE on Akash Network. Covers deployment, package install,
+persistent volumes, checkpoint markers, pentad validation gates, and GPU pipeline operation.*
 
 ---
 
@@ -10,18 +10,26 @@ Every "Issue" section describes something that actually broke, was debugged, and
 1. [What Akash Is](#1-what-akash-is)
 2. [Prerequisites](#2-prerequisites)
 3. [Creating a Deployment via the Console API](#3-creating-a-deployment-via-the-console-api)
-4. [SDL Configuration — What Works](#4-sdl-configuration--what-works)
+4. [SDL Configuration — Production (Persistent /data)](#4-sdl-configuration--production-persistent-data)
 5. [Container Startup Sequence](#5-container-startup-sequence)
 6. [Installing Python Packages — The Right Way](#6-installing-python-packages--the-right-way)
 7. [Flash Attention — Compatibility and Installation](#7-flash-attention--compatibility-and-installation)
-8. [The Ephemeral Storage Problem](#8-the-ephemeral-storage-problem)
-9. [Memory Management — The Most Confusing Part](#9-memory-management--the-most-confusing-part)
+8. [Persistent Storage — Required for Production](#8-persistent-storage--required-for-production)
+9. [Memory Management — cgroup Limits vs free -h](#9-memory-management--cgroup-limits-vs-free--h)
 10. [Pre-Downloading All Models Before Running Code](#10-pre-downloading-all-models-before-running-code)
 11. [Uploading .env to the VM](#11-uploading-env-to-the-vm)
-12. [Running the Dry Run and GPU Pipeline](#12-running-the-dry-run-and-gpu-pipeline)
-13. [Scripts Reference](#13-scripts-reference)
-14. [Troubleshooting Index](#14-troubleshooting-index)
-15. [Cost Estimate](#15-cost-estimate)
+12. [Production Pipeline — Markers, Supervisor, GPU Work](#12-production-pipeline--markers-supervisor-gpu-work)
+13. [Dataset Validation Gates (Pentad Integrity)](#13-dataset-validation-gates-pentad-integrity)
+14. [DeepSeek API Slots (d/e) Regeneration](#14-deepseek-api-slots-de-regeneration)
+15. [GPU Pipeline Guards & Stale Result Prevention](#15-gpu-pipeline-guards--stale-result-prevention)
+16. [Reset Protocol — Resume from Last Good Stage](#16-reset-protocol--resume-from-last-good-stage)
+17. [Monitoring & Health Checks](#17-monitoring--health-checks)
+18. [Post-GPU: CPU-Only Scoring (Local)](#18-post-gpu-cpu-only-scoring-local)
+19. [Scripts Reference](#19-scripts-reference)
+20. [Troubleshooting Index](#20-troubleshooting-index)
+21. [Cost Estimate](#21-cost-estimate)
+
+**Related:** [`Help/VM_progress.md`](VM_progress.md) — stage markers, monitoring scripts, ETAs, safe resume.
 
 ---
 
@@ -117,9 +125,9 @@ requests.post(f"{BASE}/v1/leases", json={
 
 ---
 
-## 4. SDL Configuration — What Works
+## 4. SDL Configuration — Production (Persistent /data)
 
-The deployment that successfully got an **A100-SXM4-80GB** used these exact resources:
+The production SDL (in `akash/_deploy_mirage.py`) uses a **persistent `/data` volume** so venv, HF cache, state markers, and logs survive container evictions. Use this as the canonical template.
 
 ```yaml
 ---
@@ -127,30 +135,49 @@ version: "2.0"
 
 services:
   mirage:
-    image: nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+    image: nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
     env:
       - GITHUB_REPO=https://github.com/DevDaring/Audit_Benchmark.git
       - ROOT_PASSWORD=MirageVM2026!
+      - HF_HOME=/data/hf_cache
+      - HUGGINGFACE_HUB_CACHE=/data/hf_cache/hub
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - PIP_CACHE_DIR=/data/pip_cache
+      - XDG_CACHE_HOME=/data/cache
+      - VENV=/data/venv
+      - STATE_DIR=/data/state
+      - REPO_DIR=/data/Audit_Benchmark
     command:
       - bash
       - -c
       - |
-        apt-get update -qq && apt-get install -y git curl tmux openssh-server wget > /dev/null
-        mkdir -p /workspace
+        apt-get update -qq && apt-get install -y git curl tmux openssh-server wget python3-venv python3-dev build-essential > /dev/null 2>&1
+        rm -rf /var/lib/apt/lists/*
         echo "root:MirageVM2026!" | chpasswd
         mkdir -p /run/sshd
         sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
         sed -i "s/#PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
         /usr/sbin/sshd
-        cd /workspace
-        git clone $GITHUB_REPO Audit_Benchmark || git -C Audit_Benchmark pull
-        echo "VM_READY" > /workspace/vm_ready.txt
+        mkdir -p /data/logs /data/state /data/hf_cache /data/pip_cache /data/cache /workspace
+        if [ ! -d /data/Audit_Benchmark/.git ]; then
+          git clone https://github.com/DevDaring/Audit_Benchmark.git /data/Audit_Benchmark 2>&1 || true
+        else
+          git -C /data/Audit_Benchmark pull --ff-only 2>&1 || true
+        fi
+        echo "VM_READY $(date -u +%FT%TZ)" > /workspace/vm_ready.txt
+        nohup bash /data/Audit_Benchmark/akash/watchdog.sh >> /data/logs/watchdog.log 2>&1 &
+        nohup bash /data/Audit_Benchmark/akash/supervise_pipeline.sh >> /data/logs/supervise.log 2>&1 &
         tail -f /dev/null
     expose:
       - port: 22
         as: 22
         to:
           - global: true
+    params:
+      storage:
+        data:
+          mount: /data
+          readOnly: false
 
 profiles:
   compute:
@@ -159,14 +186,28 @@ profiles:
         cpu:
           units: 4
         memory:
-          size: 64Gi          # <-- CRITICAL: must be 64Gi, NOT 16Gi. See §9.
+          size: 64Gi
         storage:
-          - size: 200Gi
+          - size: 30Gi              # small ephemeral root — last to be disk-evicted
+          - name: data
+            size: 120Gi
+            attributes:
+              persistent: true
+              class: beta3           # NVMe persistent SSD
         gpu:
           units: 1
           attributes:
             vendor:
               nvidia:
+                - model: rtx4090
+                - model: rtx3090
+                - model: a10
+                - model: l4
+                - model: a40
+                - model: a6000
+                - model: l40
+                - model: l40s
+                - model: a100
 
   placement:
     akash:
@@ -183,27 +224,47 @@ deployment:
 ```
 
 **Resource guidelines:**
-- `memory: 64Gi` — **mandatory for GPU model workloads**. See §9 for the full explanation of why 16Gi silently kills containers.
-- `cpu: 4` — sufficient; higher values reduce the number of providers that bid.
-- `storage: 200Gi` — enough for packages (~5 GB) + model downloads (~50 GB).
-- `gpu: units: 1` with just `vendor: nvidia:` (no model or RAM filter) — gives the most bids.
+
+| Resource | Value | Why |
+|---|---|---|
+| `memory: 64Gi` | Mandatory | Model loading peaks need ~14 GB CPU RAM per 7–8B model; 64 GiB avoids cgroup OOM (see §9). |
+| Ephemeral root `30Gi` | Small footprint | Keeps the container off the provider's disk-eviction list longer than a 200 GiB root. |
+| Persistent `/data` `120Gi` | beta3/NVMe | Holds venv (~5 GB), HF cache (~50 GB), pentad, results, state markers. Survives evictions. |
+| `runtime` CUDA image | Not `devel` | Smaller imagefs footprint on ephemeral root. |
+| Wide GPU list | 24–80 GB | More bids; calmer providers; A100 preferred but not required. |
+| `amount: 10000000` µUAKT | Bid price | Raise if no bids appear within 5 min. |
+
+**Paths on the VM:**
+
+```
+/data/
+  Audit_Benchmark/          ← git repo (cloned to persistent volume)
+  venv/                     ← Python venv (survives eviction)
+  hf_cache/                 ← HuggingFace model cache
+  state/                    ← checkpoint markers (INSTALL_OK, DATASET_OK, …)
+  logs/                     ← pipeline, install, watchdog logs
+  .env                      ← uploaded via SFTP (not in git)
+```
+
+**Legacy note:** Early deployments used `/workspace` on ephemeral-only storage. Do not use that pattern for production — packages and markers are lost on every eviction.
 
 ---
 
 ## 5. Container Startup Sequence
 
-After lease is accepted, the container starts and runs the startup command:
+After lease acceptance, the container runs the startup command:
 
-1. `apt-get install` — basic tools (git, curl, tmux, openssh-server, wget)
-2. Set root password
-3. Configure and start SSH daemon (`/usr/sbin/sshd`)
-4. `git clone` or `git pull` the repo
-5. Write `vm_ready.txt`
-6. `tail -f /dev/null` — keeps PID 1 alive so container does not exit
+1. `apt-get install` — git, curl, tmux, openssh-server, python3-venv, build-essential
+2. Set root password and start SSH daemon
+3. Create `/data/logs`, `/data/state`, cache directories
+4. `git clone` into `/data/Audit_Benchmark` (persistent). **`git pull` is opt-in only** — set `MIRAGE_GIT_PULL=1` in the SDL env to pull on boot; default is off so uploaded hotfixes are not overwritten by `main`.
+5. Launch `watchdog.sh` — logs cgroup memory, disk, GPU every 10 s to `/data/logs/watchdog.log`
+6. Launch `supervise_pipeline.sh` — checkpoint-driven pipeline supervisor
+7. `tail -f /dev/null` — keeps PID 1 alive
 
 **SSH is available ~60–90 seconds after lease creation.**
 
-**Important:** The startup command does NOT run `install.sh`. Python packages must be installed separately after SSH connects (see §6 and §8).
+The supervisor waits up to 600 s for `/data/.env` (uploaded via SFTP by `_deploy_mirage.py`), exports `HF_TOKEN` (stripping Windows CRLF), then runs `_full_pipeline.py`. On crash or eviction it retries automatically, skipping completed marker steps.
 
 ---
 
@@ -296,7 +357,7 @@ python3 -m pip install "pandas>=2.0.0" "pyarrow>=14.0.0" "numpy>=1.24.0" \
     "tqdm>=4.66.0" "requests>=2.31.0" "paramiko>=3.4.0"
 ```
 
-All of the above is in `akash/install.sh`.
+All of the above is in `akash/install.sh`, which installs into the **persistent venv** at `/data/venv` and writes `INSTALL_OK` on success. On subsequent evictions, install skips if torch + flash_attn already import (~0 s).
 
 ---
 
@@ -336,49 +397,55 @@ Expect ~45–60 minutes compile time on the VM.
 
 ---
 
-## 8. The Ephemeral Storage Problem
+## 8. Persistent Storage — Required for Production
 
-**This is the single most frustrating issue when using Akash containers.**
+### Why persistent `/data` is mandatory
 
-### What happens
+Akash containers can be evicted for disk pressure, node load, or lease expiry. Without persistent storage:
 
-Akash containers have **ephemeral storage only** by default. The filesystem is wiped on every container restart. The container's startup command re-clones the repo from GitHub, but installed Python packages are gone.
+- Installed packages are wiped (ephemeral root)
+- HF model cache is lost (~50 GB re-download)
+- Pipeline must restart from scratch
 
-### The solution: chain everything in one tmux session
+The production SDL mounts a **120 GiB beta3 persistent volume at `/data`**. All durable artifacts live there:
+
+| Path | Purpose |
+|---|---|
+| `/data/venv` | Python virtualenv (`install.sh` is idempotent — skips if torch+flash_attn import) |
+| `/data/hf_cache` | HuggingFace model cache (`HF_HOME` env var) |
+| `/data/pip_cache` | pip download cache |
+| `/data/state/` | Checkpoint markers (`INSTALL_OK`, `DATASET_OK`, …) |
+| `/data/logs/` | install, pipeline, watchdog logs (survive eviction) |
+| `/data/.env` | API keys uploaded via SFTP |
+
+### Disk eviction vs memory OOM
+
+Two distinct eviction triggers exist on Akash:
+
+| Trigger | How to detect | Fix |
+|---|---|---|
+| **Disk eviction** | `watchdog.log` shows root/workspace disk near 100% before restart | Use small ephemeral root (30 GiB) + persistent `/data`; redirect all caches to `/data` |
+| **Memory OOM** | `memory.current` near `memory.max` during model load | Set SDL `memory: 64Gi`; use smaller models if node-level eviction persists |
+
+After any eviction, check `/data/logs/watchdog.log` — the last lines before restart show which resource was spiking.
+
+### Fallback (ephemeral-only deployments)
+
+If persistent storage is unavailable, chain install + predownload + pipeline in a **single tmux session** so a mid-run restart loses everything anyway but at least one session completes if the container stays alive:
 
 ```bash
-# WRONG: two separate steps — restart can happen between them
-# Step 1: bash install.sh
-# --- container may restart here, wiping all packages ---
-# Step 2: python3 dry_run.py   # ImportError: packages are GONE
-
-# CORRECT: one chained command in a single tmux session
 tmux new-session -d -s pipeline \
-  'cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env \
-   && bash /workspace/Audit_Benchmark/akash/install.sh \
-   && git -C /workspace/Audit_Benchmark pull --ff-only origin main \
-   && cd /workspace/Audit_Benchmark/Code/mirage \
-   && python3 Dry_Run/dry_run_gpu_cpu.py --n-seeds 2; echo DONE'
+  'cp /data/.env /data/Audit_Benchmark/Code/mirage/.env \
+   && bash /data/Audit_Benchmark/akash/install.sh \
+   && /data/venv/bin/python /data/Audit_Benchmark/akash/predownload_models.py \
+   && /data/venv/bin/python /data/Audit_Benchmark/akash/_full_pipeline.py; echo DONE'
 ```
 
-This is what `akash/_full_pipeline.py` does. The `.env` copy happens first so the HF token is available for model downloads during install.
-
-### Persistent storage (production fix)
-
-```yaml
-storage:
-  - size: 200Gi       # ephemeral (root filesystem)
-  - size: 100Gi       # persistent
-    name: data
-    mount: /data
-    class: beta3       # beta3 = persistent SSD on Akash
-```
-
-Note: persistent storage costs extra and reduces the number of providers that will bid.
+Do not use ephemeral-only storage for multi-hour GPU runs.
 
 ---
 
-## 9. Memory Management — The Most Confusing Part
+## 9. Memory Management — cgroup Limits vs free -h
 
 > **This section exists because `free -h` lied to us and wasted hours of debugging.**
 
@@ -445,10 +512,9 @@ For a 7B model in bfloat16: 7B × 2 bytes = **14 GB of CPU RAM** temporarily all
 | Gemma-2-2b-it | ~4 GB | ~4 GB peak |
 | Phi-4-mini-instruct | ~8 GB | ~7 GB peak |
 
-**Minimum safe container RAM:** largest model peak + OS + Python overhead = ~14 + 3 = **17 GB**. Use **64 GiB** to have a comfortable margin and never trigger OOM.
+**Minimum safe container RAM:** largest model peak + OS + Python overhead = ~14 + 3 = **17 GB**. Use **64 GiB** in the SDL.
 
-> **First deployment used `memory: 16Gi` → OOM on every Qwen/Gemma load.
-> Changed to `memory: 64Gi` → stable. Always use 64Gi.**
+> **Rule:** Always set `memory: 64Gi`. Values below 17 GiB trigger silent cgroup OOM during model loading.
 
 ### Issue 7: Container restarts with no error during model loading
 
@@ -571,25 +637,11 @@ On conventional cloud (AWS, GCP), if a download fails you lose seconds. On Akash
 - All installed packages and partial downloads are wiped (ephemeral storage)
 - You re-pay for the entire pipeline restart
 
-**The solution is to pre-download everything in a dedicated phase BEFORE any GPU model is loaded.** `predownload_models.py` does this. Pure disk I/O, no GPU activity, no CUDA context — safe from host eviction.
+**The solution is to pre-download everything in a dedicated phase BEFORE any GPU model is loaded.** `predownload_models.py` does this. Pure disk I/O, no GPU activity, no CUDA context.
 
-### Issue 10: Container evicted during mid-run model download (confirmed in live runs)
+### Why predownload must run before GPU
 
-**What happened (actual run log):**
-```
-[240s] INFO:__main__:  [PASS] OSM_LOAD_LLAMA_3.1_8B_INSTRUCT   attn=flash_attention_2
-[240s] INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_LLAMA_3.1_8B_INSTRUCT
-[240s] INFO:GPU_CPU.load_osm:Model 'llama-3.1-8b-instruct' unloaded and VRAM freed.
-[240s] INFO:GPU_CPU.load_osm:Loading model: qwen2.5-7b-instruct ...
-[240s]   Fetching 4 files:   0%|  | 0/4 [00:00<?, ?it/s]
-[270s] tail: cannot open '/workspace/full_pipeline.log'   ← CONTAINER RESTARTED
-```
-
-LLaMA was already in the HF disk cache from a previous session, so it loaded in <40 s. Qwen was NOT cached → triggered a fresh 14 GB download → container evicted 30 seconds into the download.
-
-**Root cause:** Network download of a large model while GPU/CUDA context is active → host pinned-memory pressure → kubelet OOM-evicts the container.
-
-**Fix applied:** `_full_pipeline.py` now runs `predownload_models.py` AFTER install and BEFORE any dry run. All 4 models are downloaded to HF disk cache before a single GPU line runs.
+On Akash, a mid-run model download while CUDA is active increases host pinned-memory pressure and can trigger container eviction. All installed packages and partial state on ephemeral root are lost. Pre-downloading to the persistent `/data/hf_cache` before Step 2/4 of the GPU pipeline eliminates this risk.
 
 ### The predownload_models.py script
 
@@ -614,12 +666,12 @@ for model_id in MODELS:
 
 | Rule | Reason |
 |---|---|
-| Download ALL 4 models, not just the ones you think you'll test | Partial download = silent cache miss = download triggered mid-GPU-run = potential eviction |
-| Download BEFORE loading any model into GPU | Network + active CUDA context = host memory pressure = eviction risk |
-| Use `snapshot_download` (not `hf_hub_download`) | Downloads the entire repo including tokenizer, config, and all weight shards in one call |
-| Keep HF token available before predownload runs | LLaMA is a gated model — `HUGGINGFACE_TOKEN` must be in env or `.env` when predownload runs |
-| Never add a new model to `config.py` without adding it to `predownload_models.py` | If config has a model the predownload doesn't know about, it will be downloaded mid-run |
-| Never remove a model from `predownload_models.py` without removing it from `config.py` | Unnecessary downloads waste time; mismatches cause runtime crashes |
+| Download ALL 4 models before any GPU code | Mid-run download + CUDA context risks eviction |
+| Cache on `/data/hf_cache` (persistent) | Survives container eviction; no re-download |
+| Use `snapshot_download` (not single-file download) | Gets tokenizer, config, and all weight shards |
+| Keep `HF_TOKEN` in `/data/.env` before predownload | LLaMA and Gemma are gated models |
+| Keep `config.py` and `predownload_models.py` in sync | Mismatch causes runtime cache miss or wasted downloads |
+| Never add a model to one file without updating the other | Same matched pair rule as before |
 
 ### Keeping config.py and predownload_models.py in sync
 
@@ -654,17 +706,21 @@ Add this to `predownload_models.py` (or a companion `predownload_datasets.py`) i
 ### The correct pipeline execution order
 
 ```
-1. Upload .env (HUGGINGFACE_TOKEN must be available)
-2. install.sh  (Python packages only — no model loading)
-3. git pull    (ensure latest code)
-4. cp .env     (copy to runtime path so predownload can read it)
-5. predownload_models.py  ← ALL models to HF cache (NO GPU activity)
-6. [optional] predownload datasets
-7. dry_run_gpu_cpu.py  ← loads from cache only, NO network downloads
-8. [full run] gpu_cpu pipeline
+1. Deploy VM with persistent /data volume (§4)
+2. Upload .env to /data/.env (§11)
+3. Supervisor or autonomous_guard → _full_pipeline.py:
+   a. install.sh          → INSTALL_OK   (venv at /data/venv)
+   b. predownload_models  → PREDOWNLOAD_OK (models at /data/hf_cache)
+   c. patch_slot_b_only OR skip det patch if valid → regenerate_api_slots → DATASET_OK
+   d. run_gpu_pipeline    → GPU_PIPELINE_OK + PIPELINE_COMPLETE
+4. Download results; run CPU_Only/ locally (§18)
 ```
 
-This exact order is implemented in `akash/_full_pipeline.py` (as of commit `c99c248`).
+During step 3c, **`autonomous_guard.sh`** can run instead of the supervisor: it waits for regen, validates the pentad, then starts the supervisor. Never run the supervisor concurrently with an active `regenerate_api_slots.py` unless the guard is managing the handoff.
+
+`predownload_models.py` writes per-model marker files in `$STATE_DIR` so each model downloads exactly once per lease. Partial downloads resume via `snapshot_download` cache semantics.
+
+Optional gate: set `MIRAGE_RUN_DRYRUN=1` to insert a 2-seed dry run before step 4d.
 
 ---
 
@@ -672,7 +728,7 @@ This exact order is implemented in `akash/_full_pipeline.py` (as of commit `c99c
 
 The `.env` file contains API keys and must never be committed to git.
 
-### Upload via SFTP (implemented in `akash/_full_pipeline.py`)
+### Upload via SFTP (implemented in `akash/_deploy_mirage.py`)
 
 ```python
 import paramiko
@@ -684,126 +740,548 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(VM_HOST, port=VM_PORT, username="root", password="MirageVM2026!",
                timeout=30, banner_timeout=60)
 sftp = client.open_sftp()
-sftp.put(str(LOCAL_ENV), "/workspace/mirage.env")   # staging path outside git repo
+sftp.put(str(LOCAL_ENV), "/data/.env")   # staging path on persistent volume
 sftp.close()
 ```
 
-Then in the tmux chain, copy to runtime path:
-```bash
-cp /workspace/mirage.env /workspace/Audit_Benchmark/Code/mirage/.env
-```
+The supervisor copies `/data/.env` → `Code/mirage/.env` and strips Windows CRLF (`\r\n`) from every value. **Upload `.env` before the supervisor's 600 s wait expires** so gated model downloads succeed.
 
-**Upload .env BEFORE running install.sh** so that HuggingFace token is available for model downloads during installation.
+Required keys in `Code/mirage/.env`:
+
+| Key | Purpose |
+|---|---|
+| `HUGGINGFACE_TOKEN` / `HF_TOKEN` | Gated models (LLaMA, Gemma) |
+| `DEEPSEEK_API_KEY` | Slot d/e generation (context shift + CoT attack) |
+| `DEEPSEEK_API_KEY_2` | Second DeepSeek key for parallel regen workers |
+| `AKASH_API_KEY` | Deployment scripts (local only) |
+| `MIRAGE_GIT_PULL` | Set to `1` to enable `git pull` on boot (default: off) |
 
 ---
 
-## 12. Running the Dry Run and GPU Pipeline
+## 12. Production Pipeline — Markers, Supervisor, GPU Work
 
-### Full pipeline (from local machine)
+### Checkpoint markers (`/data/state/`)
+
+The pipeline is driven by marker files. Each step runs only if its marker is absent. Completed steps are skipped instantly on resume.
+
+| Marker | Step | What it means |
+|---|---|---|
+| `INSTALL_OK` | `akash/install.sh` | Persistent venv at `/data/venv` with torch + flash_attn |
+| `PREDOWNLOAD_OK` | `akash/predownload_models.py` | All 4 OSM models in `/data/hf_cache` |
+| `DATASET_OK` | Pentad build + validation | Full 12-slot `pentad_dataset.parquet` passes `assert_production_ready()` |
+| `GPU_PIPELINE_OK` | `GPU_CPU/run_gpu_pipeline.py` | Behavioral eval + CDVA + tau calibration complete |
+| `PIPELINE_COMPLETE` | Final sentinel | All production GPU steps succeeded |
+
+Optional: `DRYRUN_OK` — set only when `MIRAGE_RUN_DRYRUN=1` forces a 2-seed dry run gate.
+
+**Rules:**
+
+- Never set `DATASET_OK` manually — `_full_pipeline.py` validates before writing it.
+- If pentad fails validation after `DATASET_OK` exists, the orchestrator **clears** `DATASET_OK` and `GPU_PIPELINE_OK` automatically.
+- `CPU_Only/` scoring runs **locally after download** — not on the VM.
+
+### Orchestrator flow (`akash/_full_pipeline.py`)
+
+```
+INSTALL_OK        → install.sh (idempotent venv)
+PREDOWNLOAD_OK    → predownload_models.py (disk only, no GPU)
+DATASET_OK        → det patch (if needed) + regenerate_api_slots.py + validation
+GPU_PIPELINE_OK   → run_gpu_pipeline.py (behavioral + CDVA + tau)
+PIPELINE_COMPLETE → final marker
+```
+
+`_ensure_dataset()` enforces:
+
+1. **`_det_slots_valid()`** — if deterministic slots a/b/c already pass validation (including `validate_slot_b_grammar()`), **skip** `patch_det_slots.py`
+2. If slot-b only needs fixing → run `patch_slot_b_only.py` (preserves d/e; no API calls)
+3. If det slots broken → run `patch_det_slots.py` (rebuilds a/b/c; **drops d/e** until regen completes)
+4. Run or wait for `regenerate_api_slots.py` for DeepSeek slots d/e (timeout **43200 s** / 12 h)
+5. Call `assert_production_ready()` — hard gate before GPU
+6. Write `pentad_manifest.json` with SHA-256
+7. Only then write `DATASET_OK`
+
+### Slot-b vs full det patch — which script to use
+
+| Situation | Script | d/e preserved? |
+|---|---|---|
+| Slot-b grammar / iso-control only | `patch_slot_b_only.py` | Yes |
+| Equivalence-set or slot-c logic changed | `patch_det_slots.py` | No — must regen d/e |
+| d/e missing but det valid | *(skip patch)* + `regenerate_api_slots.py --keep-checkpoint` | N/A |
+
+**Rule:** Never run `patch_det_slots.py` when det slots already validate — it saves det-only rows and removes all d/e until regen finishes.
+
+### Autonomous guard (`akash/autonomous_guard.sh`)
+
+Runs on the VM during dataset rebuild (60 s poll loop):
+
+- Waits while `regenerate_api_slots.py` is active
+- Restarts dead regen with `--keep-checkpoint`
+- On `assert_production_ready()` pass → starts `supervise_pipeline.sh`
+- Keeps supervisor off until the pentad reaches 7,152 rows
+
+```bash
+nohup bash /data/Audit_Benchmark/akash/autonomous_guard.sh \
+  >> /data/logs/autonomous_guard.log 2>&1 &
+```
+
+### Git pull protection (`supervise_pipeline.sh`)
+
+`git pull` on container boot is **disabled by default** (`MIRAGE_GIT_PULL=0`). Uploaded hotfixes to `/data/Audit_Benchmark` survive restarts. Set `MIRAGE_GIT_PULL=1` in the SDL env only when you intentionally want to sync from GitHub.
+
+### Deploy from local machine
 
 ```bash
 # From repo root:
-python akash/_full_pipeline.py
+python akash/_deploy_mirage.py    # creates deployment, uploads .env, prints SSH
+python akash/_monitor.py          # polls /data/logs until PIPELINE_COMPLETE
 ```
 
-This script (as of commit `c99c248`):
-1. Uploads `.env` to `/workspace/mirage.env` via SFTP
-2. Kills any stale tmux sessions
-3. Launches chained tmux command (**updated order**):
-   - `install.sh` → all packages
-   - `INSTALL_OK` sentinel written to log
-   - `git pull` → ensure latest code
-   - `cp .env` → staging to runtime path (HF token now available)
-   - `predownload_models.py` → ALL 4 models cached to disk before any GPU activity
-   - `PREDOWNLOAD_OK` sentinel written to log
-   - `dry_run_gpu_cpu.py --n-seeds 2` → loads from cache, zero network downloads
-   - `PIPELINE_DONE` sentinel always written at end
-4. Polls every 30 seconds with phase tracking: `INSTALL` → `PREDOWNLOAD` → `DRY_RUN`
-5. Prints final PASS/FAIL result
-
-### What the polling output looks like
-
-```
-[30s]  log=6897B  phase=INSTALL      DONE=0   ← packages downloading
-[90s]  log=29025B phase=INSTALL      DONE=0   ← HF stack installing
-[150s] *** INSTALL_OK at 150s — models pre-downloading ... ***
-[150s] log=89824B phase=PREDOWNLOAD  DONE=0   ← LLaMA downloading (17 files)
-[210s] log=110kB  phase=PREDOWNLOAD  DONE=0   ← Qwen downloading
-[330s] *** PREDOWNLOAD_OK at 330s — all models cached, dry run starting ***
-[330s] log=200kB  phase=DRY_RUN      DONE=0   ← dry run running
-[360s] log=210kB  phase=DRY_RUN      DONE=0   ← all models loaded from cache
-[390s] PIPELINE_DONE
-       RESULT: 10 PASS, 0 FAIL
-       2-SEED DRY RUN PASSED.
-```
-
-### Dry run checks (what PASS looks like)
-
-```
-INFO:__main__:=== GPU_CPU Dry Run (run_id=..., n_seeds=2) ===
-INFO:__main__:  [PASS] ENV_KEYS
-INFO:__main__:  [PASS] PLATFORM_LINUX  OS: Linux
-INFO:__main__:  [PASS] GPU_AVAILABLE  NVIDIA A100-SXM4-80GB | 79.3 GB
-INFO:__main__:  [PASS] TRANSFORMER_LENS_IMPORT  installed (v2.18.0+)
-INFO:__main__:  [PASS] NNSIGHT_IMPORT  v0.7.0
-INFO:__main__:  [PASS] FLASH_ATTENTION_IMPORT  v2.7.4.post1
-INFO:__main__:  [PASS] OSM_LOAD_LLAMA_3.1_8B_INSTRUCT  attn=flash_attention_2
-INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_LLAMA_3.1_8B_INSTRUCT  2 responses, ...
-INFO:__main__:  [PASS] OSM_LOAD_QWEN2.5_7B_INSTRUCT  attn=flash_attention_2
-INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_QWEN2.5_7B_INSTRUCT  2 responses, ...
-INFO:__main__:  [PASS] OSM_LOAD_GEMMA.2.2B.IT  attn=flash_attention_2
-INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_GEMMA.2.2B.IT  2 responses, ...
-INFO:__main__:  [PASS] OSM_LOAD_PHI.4.MINI.INSTRUCT  attn=flash_attention_2
-INFO:__main__:  [PASS] OSM_BATCH_INFERENCE_PHI.4.MINI.INSTRUCT  2 responses, ...
-INFO:__main__:  [PASS] CDVA_PATCHING_ONE_PAIR  delta_logit=0.xxxx
-INFO:__main__:  [PASS] OUTLINES_CONSTRAINED_JSON  {"answer": ...}
-```
-
-### Monitoring a running session
+### Monitor on the VM
 
 ```bash
-ssh root@provider.a100.dsm.val.akash.pub -p 32355
+ssh root@<provider-host> -p <port>
 # Password: MirageVM2026!
 
-tmux attach -t full          # attach to pipeline session
-tail -f /workspace/full_pipeline.log   # tail the log
+tail -f /data/logs/pipeline_attempt_1.log   # main pipeline log
+tail -f /data/logs/watchdog.log             # resource snapshots every 10 s
+tail -f /data/logs/supervise.log              # supervisor retry loop
+ls -la /data/state/                           # checkpoint markers
+```
+
+### GPU pipeline steps (`GPU_CPU/run_gpu_pipeline.py`)
+
+```
+Step 1/4: Load all 4 OSM models (~42 GB VRAM on A100 80GB)
+Step 2/4: Behavioral evaluation — 4 models × 7152 prompts (det + variance)
+Step 3/4: CDVA patching
+Step 4/4: Tau calibration
+```
+
+`behavioral_results.parquet` is written after each model completes its full deterministic pass (not incrementally per batch). Absence of result files during Step 2 is normal.
+
+### Expected runtime
+
+| Phase | Duration |
+|---|---|
+| Install (first time) | ~2–3 min |
+| Pre-download (~42 GB) | ~5–10 min |
+| Dataset build (DeepSeek d/e for 596 seeds) | ~1–2 hr |
+| GPU behavioral (4 models × 7152 + variance) | ~4–5 hr |
+| CDVA + tau calibration | ~1–2 hr |
+| **Total GPU pipeline** | **~6–10 hr** |
+
+At ~147 prompts/min observed on A100, budget **~6 hours** for remaining GPU work after dataset is ready.
+
+### Optional dry run
+
+Set `MIRAGE_RUN_DRYRUN=1` in the SDL env to force a 2-seed dry run gate before GPU work. Production deployments skip dry run (validated separately).
+
+---
+
+## 13. Dataset Validation Gates (Pentad Integrity)
+
+The pentad dataset (`Dataset/seeds/pentad_dataset.parquet`) is the foundation of all MIRAGE results. **Never start GPU inference on an unvalidated pentad.**
+
+### Production-ready requirements
+
+`Dataset/validate_pentad.py` → `assert_production_ready()` enforces:
+
+| Check | Requirement |
+|---|---|
+| Audit sources only | BBQ, CrowS-Pairs, StereoSet in main set |
+| WinoBias held out | Zero WinoBias rows in pentad (separate file) |
+| Row count | `n_seeds × 12` audit rows (currently **596 × 12 = 7,152**) |
+| Slot completeness | Each seed: a(1) + b(1) + c(5) + d(2) + e(3) = 12 |
+| Prompt text | No `"None"`, `"nan"`, `"null"` sentinel strings |
+| Slot-b differs from slot-a | Protected-token swap must change the text |
+| Slot-b grammar | No `Person and Person`, `person man`, `Context: person`, `person are`, etc. |
+| Slot-c variants distinct | All 5 counterfactual swaps must differ |
+| MCQ options | BBQ prompts include `(A)`, `(B)`, `(C)` options |
+| Gold answers | Scorable per `Dataset/gold_utils.py` (BBQ `"Unknown"` is valid) |
+| DeepSeek slots d/e | Must embed slot-a text; validated by `validate_deepseek_embeds_slot_a()` |
+
+### Seed counts (actual production build)
+
+| Source | Included seeds |
+|---|---|
+| BBQ | 254 |
+| CrowS-Pairs | 181 |
+| StereoSet | 161 |
+| **Total audit (N)** | **596** |
+| WinoBias | 200 (held out — `winobias_seeds.parquet`) |
+| Excluded StereoSet | 22 (documented in `excluded_seeds.json`) |
+
+Report **N = 596** in the paper. Check `Dataset/seeds/excluded_seeds.json` for exclusion reasons.
+
+### Slot-b iso-control neutralization (`pentad_generator.py`)
+
+Slot-b replaces protected demographic tokens with neutral terms. Production fixes ensure grammatical iso-controls:
+
+| Source pattern | Fix |
+|---|---|
+| BBQ `"Person and Person"` | Distinct `Person A/B/C` via `_neutralize_bbq_names()` |
+| CrowS `"person man"` | `_expand_crows_surface()` + `_replace_with_neutral_person()` |
+| StereoSet `"The person man"` (e.g. Muslim man) | Expand phrase; replace full compound → `person` |
+| `"Context: person is..."` | `_polish_slot_b_text()` → `Context: A person is...` |
+| `"Gentlemen are"` → `"person are"` | `_PLURAL_NEUTRAL_TERMS` → `People are` |
+
+Validate after any slot-b change:
+
+```bash
+python -c "
+import pandas as pd
+from Dataset.validate_pentad import validate_slot_b_grammar
+validate_slot_b_grammar(pd.read_parquet('Dataset/seeds/pentad_dataset.parquet'))
+print('slot-b grammar OK')
+"
+```
+
+To patch slot-b without touching d/e:
+
+```bash
+python patch_slot_b_only.py
+# Only regen d/e if slot-a text changed:
+python regenerate_api_slots.py --keep-checkpoint
+```
+
+### Slot distribution (596 seeds)
+
+```
+a=596, b=596, c=2980 (596×5), d=1192 (596×2), e=1788 (596×3)
+```
+
+### Manifest and SHA tracking
+
+After validation, `write_pentad_manifest()` writes `Dataset/seeds/pentad_manifest.json`:
+
+```json
+{
+  "pentad_sha256": "f8ddb67d6032...",
+  "n_rows": 7152,
+  "n_audit_seeds": 596,
+  "rows_per_seed": 12,
+  "has_api_slots": true,
+  "excluded_seeds": { ... }
+}
+```
+
+The SHA is used by `pipeline_guards.py` to detect stale GPU results (see §15).
+
+### Manual validation (on VM or locally)
+
+```bash
+cd Code/mirage
+python -c "
+import pandas as pd
+from Dataset.validate_pentad import assert_production_ready
+assert_production_ready(pd.read_parquet('Dataset/seeds/pentad_dataset.parquet'))
+print('PRODUCTION READY')
+"
+```
+
+### Scoring gold rules (`Dataset/gold_utils.py`)
+
+- Empty, `"nan"`, `"none"` → not scorable
+- BBQ labels like `"Unknown"` and `"Can't be determined"` → **valid gold** (ambiguous items)
+- Non-BBQ sources with `"unknown"` → not scorable (construction failure)
+- `CPU_Only/scoring.py` uses `is_scorable_gold()` — never auto-pass on missing gold
+
+---
+
+## 14. DeepSeek API Slots (d/e) Regeneration
+
+Slots **d** (context shift) and **e** (CoT attack) are generated by DeepSeek API calls. They depend on correct slot-a text.
+
+### Parallel workers and dual keys
+
+`context_shift_drafter.py` and `cot_attack_generator.py` use **2 parallel workers**, one per DeepSeek key (`DEEPSEEK_API_KEY`, `DEEPSEEK_API_KEY_2`). Each seed falls back to the alternate key on failure. Retries: 5 per seed.
+
+Observed throughput: ~50–60 seeds/min for slot-d on Akash.
+
+### Build order
+
+```
+1. sample_seeds.py         → seeds.parquet (BBQ + CrowS + StereoSet; WinoBias separate)
+2. pentad_generator.py     → initial pentad
+   OR patch_slot_b_only.py → slot-b only (preserves d/e)
+   OR patch_det_slots.py    → a/b/c only (drops d/e — use only when det broken)
+3. regenerate_api_slots.py → DeepSeek slots d/e for all audit seeds
+4. validate_pentad.py       → assert_production_ready() + validate_slot_b_grammar()
+5. write_pentad_manifest    → SHA + metadata
+```
+
+### Running regeneration
+
+```bash
+cd /data/Audit_Benchmark/Code/mirage
+/data/venv/bin/python regenerate_api_slots.py
+```
+
+Flags:
+
+| Flag | Effect |
+|---|---|
+| (default) | Clears stale checkpoints; regenerates all d/e |
+| `--keep-checkpoint` | Resume from JSON checkpoint — safe when slot-a text unchanged |
+| `--dry-run` | Validate inputs without API calls |
+
+Checkpoints live at `Dataset/seeds/context_shift_checkpoint.json` and `cot_attack_checkpoint.json`.
+
+**Incremental save:** `regenerate_api_slots.py` writes the pentad after slot-d completes (`_save_partial_pentad()`), so a crash during slot-e does not lose slot-d progress. Checkpoints are kept until full validation passes.
+
+### Orchestrator integration
+
+`_full_pipeline.py` → `_ensure_dataset()`:
+
+- Skips `patch_det_slots.py` when `_det_slots_valid()` passes (includes slot-b grammar)
+- Runs `patch_slot_b_only.py` when orchestrator detects slot-b-only fixes needed
+- Starts or waits for `regenerate_api_slots.py` if d/e missing
+- Polls every 30 s (timeout **43200 s** / 12 h) until `assert_production_ready()` passes
+- Never proceeds to GPU on a det-only partial set (e.g. 4,172 rows without d/e)
+
+**Before any pentad patch on a running VM:**
+
+```bash
+pkill -f supervise_pipeline
+pkill -f _full_pipeline
 ```
 
 ---
 
-## 13. Scripts Reference
+## 15. GPU Pipeline Guards & Stale Result Prevention
+
+`GPU_CPU/pipeline_guards.py` → `clear_stale_gpu_results_if_pentad_changed()` runs at GPU pipeline start.
+
+**Logic:**
+
+1. Compute SHA-256 of current `pentad_dataset.parquet`
+2. Compare to `pentad_manifest.json` → `pentad_sha256`
+3. If SHA changed (or manifest missing):
+   - Delete `results/behavioral_results.parquet`
+   - Delete `results/cdva_results.parquet`
+   - Delete `results/tau_calibration.json`
+   - Clear `GPU_PIPELINE_OK` marker
+
+This prevents scoring behavioral outputs from a prior dataset version.
+
+`run_gpu_pipeline.py` also calls `assert_production_ready()` before loading any model — a second hard gate at GPU entry.
+
+---
+
+## 16. Reset Protocol — Resume from Last Good Stage
+
+When the pipeline stops or data may be corrupt, reset **only from the last verified-good stage**. Never blindly delete all markers.
+
+### Decision tree
+
+```
+1. Run assert_production_ready() on pentad
+   ├─ PASSES → keep DATASET_OK; only clear GPU markers if results stale
+   └─ FAILS  → clear DATASET_OK + GPU_PIPELINE_OK; rebuild dataset
+
+2. Check pentad_manifest.json SHA vs current pentad SHA
+   ├─ MATCH   → GPU results may be valid; resume from GPU_PIPELINE_OK if present
+   └─ DIFFER  → pipeline_guards clears results + GPU_PIPELINE_OK automatically
+
+3. Restart supervisor (only after pentad validates)
+   bash /data/Audit_Benchmark/akash/supervise_pipeline.sh
+   # Or let autonomous_guard.sh start it automatically
+```
+
+### Manual reset commands (use sparingly)
+
+```bash
+# Pentad still validates — restart GPU only:
+pkill -f supervise_pipeline
+rm -f /data/state/GPU_PIPELINE_OK /data/state/PIPELINE_COMPLETE
+bash /data/Audit_Benchmark/akash/supervise_pipeline.sh
+
+# Slot-b fix only (det + d/e intact):
+pkill -f supervise_pipeline
+cd /data/Audit_Benchmark/Code/mirage
+/data/venv/bin/python patch_slot_b_only.py
+# Regen d/e only if slot-a text changed:
+/data/venv/bin/python regenerate_api_slots.py --keep-checkpoint
+
+# Det slots broken — full det rebuild + regen:
+pkill -f supervise_pipeline
+rm -f /data/state/DATASET_OK /data/state/GPU_PIPELINE_OK /data/state/PIPELINE_COMPLETE
+cd /data/Audit_Benchmark/Code/mirage
+/data/venv/bin/python patch_det_slots.py
+/data/venv/bin/python regenerate_api_slots.py --keep-checkpoint
+nohup bash /data/Audit_Benchmark/akash/autonomous_guard.sh \
+  >> /data/logs/autonomous_guard.log 2>&1 &
+
+# Never do this on a valid pentad:
+# python run_dataset.py --force   ← bypasses validation gates
+```
+
+### What markers to keep vs clear
+
+| Situation | Keep | Clear |
+|---|---|---|
+| GPU interrupted mid-run, pentad valid | `INSTALL_OK`, `PREDOWNLOAD_OK`, `DATASET_OK` | `GPU_PIPELINE_OK`, `PIPELINE_COMPLETE` |
+| Slot-b patched, d/e unchanged | `INSTALL_OK`, `PREDOWNLOAD_OK`, `DATASET_OK` | `GPU_PIPELINE_OK`, `PIPELINE_COMPLETE` (if SHA changed) |
+| Pentad regenerated (d/e rebuilt) | `INSTALL_OK`, `PREDOWNLOAD_OK` | `DATASET_OK`, `GPU_PIPELINE_OK`, `PIPELINE_COMPLETE` |
+| Fresh deploy on new VM | (none — all rebuilt) | — |
+
+---
+
+## 17. Monitoring & Health Checks
+
+### Local monitoring scripts (run from repo root)
+
+| Script | Purpose |
+|---|---|
+| `python akash/_monitor.py` | Poll until `PIPELINE_COMPLETE` |
+| `python akash/_pipeline_health.py` | Full audit: markers, pentad, GPU progress, ETA |
+| `python akash/_vm_progress.py` | Quick marker + pentad + log snapshot |
+| `python akash/_regen_progress.py` | DeepSeek checkpoint progress (slot-d/e counts) |
+| `python akash/_quick_eta.py` | Progress rate and hours remaining |
+| `python akash/_monitor_regen.py` | Watch DeepSeek slot regeneration |
+| `python akash/_deploy_hardened.py` | Upload fixes, restart regen, start autonomous guard |
+| `python akash/_deep_audit.py` | Research validity audit (prompts, gold, scoring) |
+| `python akash/_research_audit.py` | Dataset + metrics research audit |
+
+### On-VM log locations
+
+| Log | Content |
+|---|---|
+| `/data/logs/pipeline_attempt_N.log` | Full pipeline output (one file per supervisor attempt) |
+| `/data/logs/watchdog.log` | Memory, disk, GPU every 10 s — check before eviction |
+| `/data/logs/install.log` | Package install output |
+| `/data/logs/supervise.log` | Supervisor retry loop |
+| `/data/logs/autonomous_guard.log` | Autonomous guard poll loop |
+| `/data/Audit_Benchmark/LOG/regen_api_slots.log` | DeepSeek regeneration detail |
+
+### Health checklist
+
+```bash
+# Markers
+ls -la /data/state/
+
+# Pentad valid?
+cd /data/Audit_Benchmark/Code/mirage && /data/venv/bin/python -c \
+  "import pandas as pd; from Dataset.validate_pentad import assert_production_ready; \
+   assert_production_ready(pd.read_parquet('Dataset/seeds/pentad_dataset.parquet')); print('OK')"
+
+# GPU running?
+pgrep -af run_gpu_pipeline
+
+# Latest progress
+grep "prompts done" /data/logs/pipeline_attempt_1.log | tail -3
+
+# GPU utilisation
+nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader
+```
+
+---
+
+## 18. Post-GPU: CPU-Only Scoring (Local)
+
+After `PIPELINE_COMPLETE` on the VM:
+
+1. Download results:
+   ```bash
+   scp -P <port> root@<host>:/data/Audit_Benchmark/Code/mirage/results/behavioral_results.parquet .
+   scp -P <port> root@<host>:/data/Audit_Benchmark/Code/mirage/results/cdva_results.parquet .
+   scp -P <port> root@<host>:/data/Audit_Benchmark/Code/mirage/results/tau_calibration.json .
+   ```
+2. Download validated pentad + manifest (for reproducibility):
+   ```bash
+   scp -P <port> root@<host>:/data/Audit_Benchmark/Code/mirage/Dataset/seeds/pentad_dataset.parquet .
+   scp -P <port> root@<host>:/data/Audit_Benchmark/Code/mirage/Dataset/seeds/pentad_manifest.json .
+   ```
+3. Run CPU scoring and analysis locally (from `Code/mirage/`):
+   ```bash
+   # Scoring, statistics, leaderboard, predictive validity — run each module
+   # after placing downloaded parquets in results/
+   python -m CPU_Only.scoring
+   python -m CPU_Only.results_analysis
+   python -m CPU_Only.statistics
+   python -m CPU_Only.leaderboard
+   python -m CPU_Only.predictive_validity
+   ```
+   Or use `Dry_Run/dry_run_cpu_only.py` for a single-seed sanity check first.
+
+4. Close the Akash deployment to stop billing:
+   ```python
+   import requests
+   requests.delete(f"https://console-api.akash.network/v1/deployments/{dseq}",
+                   headers={"x-api-key": AKASH_API_KEY})
+   ```
+
+---
+
+## 19. Scripts Reference
 
 All scripts live in `akash/`. Run from repo root.
 
 | Script | Purpose |
 |---|---|
-| `_deploy_mirage.py` | Full Akash Console API deployment: SDL → bids → lease → SSH poll |
-| `_full_pipeline.py` | **Primary entry point.** Upload .env + chain install + git pull + dry run |
-| `predownload_models.py` | Pre-downloads all 4 OSM models to HF cache (called from install.sh) |
-| `_poll_pipeline.py` | Poll `/workspace/full_pipeline.log` until PIPELINE_DONE |
-| `_reinstall.py` | Re-run install.sh on running VM |
-| `_quick_check.py` | Fast check: VM reachable? tmux sessions? workspace contents? |
+| `_deploy_mirage.py` | **Primary deploy.** SDL → bids → lease → SFTP `.env` → print SSH |
+| `_full_pipeline.py` | On-VM orchestrator (called by supervisor, not run locally) |
+| `supervise_pipeline.sh` | Pipeline supervisor — retries on crash, skips completed markers |
+| `autonomous_guard.sh` | On-VM guard: wait for regen, validate, start supervisor |
+| `watchdog.sh` | Resource logger to `/data/logs/watchdog.log` every 10 s |
+| `install.sh` | Idempotent venv install to `/data/venv` |
+| `predownload_models.py` | Pre-download all 4 OSM models to `/data/hf_cache` |
+| `_monitor.py` | Poll logs until `PIPELINE_COMPLETE` |
+| `_pipeline_health.py` | Full health audit + ETA (markers, pentad, GPU, logs) |
+| `_vm_progress.py` | Quick progress snapshot |
+| `_quick_eta.py` | Progress rate and hours remaining |
+| `_monitor_regen.py` | Watch DeepSeek slot-d/e regeneration |
+| `_upload_mirage_fixes.py` | Upload local code fixes to running VM |
+| `_deploy_hardened.py` | Deploy hardened pipeline + start autonomous guard |
+| `_slotb_fix_restart.py` | Stop supervisor, patch slot-b, regen, validate, restart |
+| `_prelaunch_audit_clean.py` | Upload code, patch, start regen, validate, clean, launch |
+| `_prelaunch_finish.py` | Poll regen → validate → launch (12 h timeout) |
+| `_repair_and_restart.py` | Stop GPU, clear bad markers, rebuild dataset, restart |
 | `_diagnose2.py` | Deep diagnostics: PID 1 uptime, cgroup memory, disk, host load |
-| `_check_pkgs.py` | Verify all required packages via a Python script on VM |
-| `install.sh` | Package installer (runs on VM). See §6 and §7. |
+| `_quick_check.py` | Fast check: VM reachable? processes? markers? |
 | `vm_ssh.txt` | VM host/port/dseq (gitignored, updated per deployment) |
 
-### Current active VM
+### VM connection template
 
 | Field | Value |
 |---|---|
-| DSEQ | `27071620` |
-| SSH | `ssh root@provider.a100.dsm.val.akash.pub -p 32355` |
+| SSH | `ssh root@<provider-host> -p <port>` |
 | Password | `MirageVM2026!` |
-| RAM allocated | **64 GiB** (cgroup-verified: 68,719,476,736 bytes) |
-| GPU | NVIDIA A100-SXM4-80GB, 79.3 GB VRAM |
-| Cost | ~$1.25/hr |
+| RAM | 64 GiB (verify: `cat /sys/fs/cgroup/memory.max`) |
+| Repo path | `/data/Audit_Benchmark` |
+| State markers | `/data/state/` |
+| Results | `/data/Audit_Benchmark/Code/mirage/results/` |
 
 ---
 
-## 14. Troubleshooting Index
+## 20. Troubleshooting Index
 
-### Memory / container restart issues (most common)
+### Dataset / pentad issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| GPU starts on partial pentad (no d/e rows) | `DATASET_OK` set without validation or supervisor ran during regen | Kill supervisor; run `regenerate_api_slots.py --keep-checkpoint`; use `autonomous_guard.sh`; verify with `assert_production_ready()` |
+| Pentad dropped to 4,172 rows | `patch_det_slots.py` ran while d/e existed | Never run `patch_det_slots` when det valid; regen d/e with `--keep-checkpoint` |
+| Slot-b ungrammatical (`person man`, etc.) | Incomplete neutralization | Run `patch_slot_b_only.py`; `validate_slot_b_grammar()` must pass |
+| Slot-b identical to slot-a | Broken protected-token swap | Re-run `patch_slot_b_only.py` or `patch_det_slots.py` if equivalence sets changed |
+| Uploaded fixes overwritten on restart | `git pull` on boot | Keep `MIRAGE_GIT_PULL=0` (default); upload via `_deploy_hardened.py` |
+| Scoring compares against empty gold | Missing or placeholder `gold_answer` | Rebuild pentad; use `gold_utils.is_scorable_gold()` — BBQ `"Unknown"` is valid |
+| WinoBias rows in main pentad | Seeds not filtered at build | WinoBias must be in separate file only; `assert_production_ready()` rejects WinoBias rows |
+| Slot-c all identical | Degenerate counterfactual swaps | Re-run `pentad_generator.py` (source-aware CrowS diff pairing) |
+| DeepSeek d/e don't embed slot-a | Stale API checkpoints | Re-run `regenerate_api_slots.py` (default clears checkpoints) |
+| `"None"` in StereoSet prompts | Unresolved template placeholder | `validate_pentad.py` rejects sentinel strings; rebuild affected seeds |
+| GPU results don't match current pentad | Pentad SHA changed after GPU run | `pipeline_guards.py` auto-clears stale parquets + `GPU_PIPELINE_OK` |
+
+### Pipeline marker issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Pipeline skips dataset rebuild but pentad invalid | Stale `DATASET_OK` marker | `_full_pipeline.py` auto-clears marker when validation fails |
+| Pipeline skips GPU but results are from old pentad | Stale `GPU_PIPELINE_OK` + SHA mismatch | `pipeline_guards.py` clears on SHA change; or manual reset (see §16) |
+| Supervisor loops forever on dataset step | DeepSeek regen still running or failed | Check `regen_api_slots.log`; use `autonomous_guard.sh`; timeout is 12 h |
+| `behavioral_results.parquet` missing mid-run | Normal — saved per model completion | Wait for model 1 deterministic pass to finish (7152 prompts) |
+
+### Memory / container restart issues
 
 | Symptom | First thing to check | Root cause | Fix |
 |---|---|---|---|
@@ -811,7 +1289,7 @@ All scripts live in `akash/`. Run from repo root.
 | `free -h` shows 2 TiB but container still OOMs | Don't trust `free -h` in containers | `free` reads host RAM, not cgroup limit | Check `/sys/fs/cgroup/memory.max` instead |
 | Container restarts even with 64 GiB cgroup, only 300 MB used | `cat /proc/loadavg` | Node-level eviction (host overloaded) | Reduce model sizes; switch to sequential load/unload |
 | Container evicted mid-run during a model download | Check timing: restart happens when `Fetching N files` appears | Download + active CUDA context = host memory pressure | Run `predownload_models.py` BEFORE any GPU code (see §10) |
-| Log file disappears after restart | Ephemeral storage wiped | Container restarted → `/workspace` cleared | Use chained tmux session (see §8) |
+| Log file disappears after restart | Ephemeral root wiped | Use persistent `/data` volume; logs at `/data/logs/` survive |
 | `memory.max` shows correct limit but OOM still happens | Check GPU kernel memory | Pinned GPU memory not tracked by cgroup | Reduce peak VRAM by using smaller models |
 
 ### Model and dataset issues
@@ -849,7 +1327,7 @@ All scripts live in `akash/`. Run from repo root.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `HUGGINGFACE_TOKEN` missing | `.env` not on VM | Upload via SFTP BEFORE launching install chain; see §11 |
-| Packages gone after reconnect | Container restarted | Chain install+code in single tmux session; see §8 |
+| Packages gone after reconnect | Container restarted on ephemeral root | With persistent `/data`, venv and markers survive; re-run supervisor only |
 | `ModuleNotFoundError: dotenv` | Install exited early | Apply `__version__` fix to install.sh |
 | OOM during CDVA patching | TL + HF model both in VRAM | Set threshold to 1.0× in `cdva_patching.py` |
 
@@ -862,25 +1340,19 @@ All scripts live in `akash/`. Run from repo root.
 
 ---
 
-## 15. Cost Estimate
+## 21. Cost Estimate
 
 | Phase | Duration | Cost at ~$1.25/hr |
 |---|---|---|
-| Install packages | ~2.5 min | ~$0.05 |
+| Install packages (first time) | ~2–3 min | ~$0.05 |
 | Pre-download all 4 models (~42 GB) | ~5–10 min | ~$0.10–$0.20 |
-| 2-seed dry run (from cache) | ~3–5 min | ~$0.06–$0.10 |
-| **Total dry run validation** | **~10–18 min** | **~$0.21–$0.35** |
-| Full GPU behavioral eval (4 OSM models, full dataset) | ~6–10 hr | ~$7.50–$12.50 |
-| CDVA patching (4 models) | ~3–5 hr | ~$3.75–$6.25 |
-| CPU-only API eval | runs on separate machine | — |
-| **Total (approximate)** | **~10–15 hr** | **~$12–$19** |
+| Dataset build (DeepSeek d/e, 596 seeds) | ~1–2 hr | ~$1.25–$2.50 |
+| GPU behavioral eval (4 models, 7152 prompts) | ~4–5 hr | ~$5–$6.25 |
+| CDVA patching + tau calibration | ~1–2 hr | ~$1.25–$2.50 |
+| CPU-only scoring (local machine) | — | — |
+| **Total GPU on Akash** | **~6–10 hr** | **~$8–$13** |
 
-**Close the deployment when done:**
-```python
-import requests
-requests.delete("https://console-api.akash.network/v1/deployments/27071620",
-                headers={"x-api-key": AKASH_API_KEY})
-```
+Close the deployment when `PIPELINE_COMPLETE` is set and results are downloaded.
 
 ---
 
@@ -908,9 +1380,52 @@ python-dotenv:    1.2.2
 | OSM-1 | `meta-llama/Llama-3.1-8B-Instruct` | 8B | ~16 GB | TransformerLens | ✅ Confirmed |
 | OSM-2 | `Qwen/Qwen2.5-7B-Instruct` | 7B | ~14 GB | nnsight | ✅ Confirmed |
 | OSM-3 | `google/gemma-2-2b-it` | 2B | ~4 GB | TransformerLens | ✅ Replaced from 9B |
-| OSM-4 | `microsoft/Phi-4-mini-instruct` | 3.8B | ~8 GB | nnsight | Pending test |
+| OSM-4 | `microsoft/Phi-4-mini-instruct` | 3.8B | ~8 GB | nnsight | ✅ Confirmed |
 
-**Why Gemma-2-9B was replaced with Gemma-2-2B:**
-The 9B model caused node-level container evictions on Akash providers during loading due to high GPU pinned memory pressure (~18 GB VRAM peak). Gemma-2-2B uses the identical architecture (same TransformerLens hooks, same `-it` instruction format) with 4× less memory. Research coverage of the Gemma model family is preserved.
+**Gemma-2-2B vs Gemma-2-9B:** Use Gemma-2-2B on Akash. Same TransformerLens hooks and `-it` instruction format, but ~4 GB VRAM instead of ~18 GB — reduces node-level eviction risk during loading.
 
-**Total VRAM across all 4 models:** ~42 GB (down from ~56 GB). All fit comfortably on one A100-80GB.
+**Total VRAM across all 4 models:** ~42 GB. Fits comfortably on one A100-80GB.
+
+## Appendix C: Pre-GPU Checklist
+
+Run this checklist before allowing GPU work. All items must pass.
+
+```bash
+# 1. Markers
+ls /data/state/INSTALL_OK /data/state/PREDOWNLOAD_OK /data/state/DATASET_OK
+
+# 2. Pentad row count (expect 7152 = 596 seeds × 12)
+/data/venv/bin/python -c "
+import pandas as pd
+df = pd.read_parquet('/data/Audit_Benchmark/Code/mirage/Dataset/seeds/pentad_dataset.parquet')
+audit = df[df.seed_source.str.lower().isin(['bbq','crows_pairs','stereoset'])]
+print('rows', len(audit), 'seeds', audit.seed_id.nunique())
+print('slots', audit.slot.value_counts().to_dict())
+"
+
+# 3. Production-ready gate (includes slot-b grammar)
+cd /data/Audit_Benchmark/Code/mirage && /data/venv/bin/python -c \
+  "import pandas as pd; from Dataset.validate_pentad import assert_production_ready, validate_slot_b_grammar; \
+   df = pd.read_parquet('Dataset/seeds/pentad_dataset.parquet'); \
+   validate_slot_b_grammar(df); assert_production_ready(df); print('OK')"
+
+# 4. Manifest SHA present
+cat /data/Audit_Benchmark/Code/mirage/Dataset/seeds/pentad_manifest.json
+
+# 5. No stale API checkpoints (should be absent after regen)
+ls /data/Audit_Benchmark/Code/mirage/Dataset/seeds/*checkpoint* 2>/dev/null || echo "no checkpoints — good"
+
+# 6. Models cached
+ls /data/hf_cache/hub/models--meta-llama--Llama-3.1-8B-Instruct 2>/dev/null && echo "LLaMA cached"
+```
+
+**Hard rules before GPU:**
+
+- Never set `DATASET_OK` manually
+- Never run `run_dataset.py --force` to bypass validation
+- Never start GPU on a det-only pentad (missing d/e rows)
+- Never run `patch_det_slots.py` when det slots already validate
+- Never run the supervisor while `regenerate_api_slots.py` is active (use `autonomous_guard.sh`)
+- Never reuse DeepSeek checkpoints after slot-a text changed
+- WinoBias must not appear in the main pentad
+- Report **N = 596** audit seeds in the paper (22 StereoSet seeds excluded — see `excluded_seeds.json`)

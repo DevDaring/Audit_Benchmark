@@ -17,6 +17,8 @@ religion:
   - Christian
   - Jewish
   - Atheist
+  - Brahmin
+  - Brahmins
 
 gender:
   - man
@@ -70,10 +72,14 @@ sexual_orientation:
 
 socioeconomic:
   - wealthy
+  - well-off
   - middle-class
   - working-class
   - low-income
+  - low income
   - homeless
+  - poor
+  - rich
 
 disability:
   - disabled

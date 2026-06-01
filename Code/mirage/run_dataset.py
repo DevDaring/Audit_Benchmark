@@ -86,9 +86,14 @@ def main() -> bool:
 
     # ---------------------------------------------------------------- validate
     logger.info("Step 3/3: Validating pentad dataset ...")
-    from Dataset.validate_pentad import run_all_validations
+    from Dataset.validate_pentad import assert_production_ready, write_pentad_manifest
     try:
-        run_all_validations(pentad_df)
+        if args.det_only:
+            from Dataset.validate_pentad import run_all_validations
+            run_all_validations(pentad_df, require_api_slots=False)
+        else:
+            assert_production_ready(pentad_df)
+        write_pentad_manifest(pentad_df)
     except Exception as exc:
         logger.error("Validation FAILED: %s", exc)
         return False

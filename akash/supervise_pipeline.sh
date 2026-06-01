@@ -52,8 +52,12 @@ else
   echo "[supervise] WARN: .env not found after 600s — gated model downloads may fail"
 fi
 
-# ── Pull latest code before first attempt ─────────────────────────────────
-git -C "$REPO" pull --ff-only origin main 2>&1 || true
+# ── Pull latest code before first attempt (opt-in — uploaded fixes must not be overwritten) ──
+if [ "${MIRAGE_GIT_PULL:-0}" = "1" ]; then
+  git -C "$REPO" pull --ff-only origin main 2>&1 || true
+else
+  echo "[supervise] git pull skipped (set MIRAGE_GIT_PULL=1 to enable)"
+fi
 
 # ── Retry loop ─────────────────────────────────────────────────────────────
 ATTEMPT=0
@@ -78,8 +82,9 @@ until [ -f "$STATE/PIPELINE_COMPLETE" ]; do
 
   echo "[supervise] attempt $ATTEMPT exited without completion — resuming in 15s"
   sleep 15
-  # Pull latest code in case a fix was pushed between attempts
-  git -C "$REPO" pull --ff-only origin main 2>&1 || true
+  if [ "${MIRAGE_GIT_PULL:-0}" = "1" ]; then
+    git -C "$REPO" pull --ff-only origin main 2>&1 || true
+  fi
 done
 
 echo "[supervise] done at $(date -u +%FT%TZ)"

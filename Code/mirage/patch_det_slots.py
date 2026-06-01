@@ -19,6 +19,7 @@ Implements / builds on / cites:
 """
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 _PENTAD_PATH = SEEDS_DIR / "pentad_dataset.parquet"
 _SEEDS_PATH = SEEDS_DIR / "seeds.parquet"
+_AUDIT_SOURCES = frozenset({"bbq", "crows_pairs", "stereoset"})
 
 
 def main() -> bool:
@@ -57,23 +59,20 @@ def main() -> bool:
     logger.info("  Existing rows: %d", len(old_df))
 
     api_df = old_df[old_df["slot"].isin(["d", "e"])].copy()
+    api_df = api_df[
+        api_df["seed_source"].astype(str).str.lower().isin(_AUDIT_SOURCES)
+    ]
     det_old = old_df[old_df["slot"].isin(["a", "b", "c"])]
     logger.info("  API rows (d/e): %d", len(api_df))
     logger.info("  Det rows (a/b/c) before patch: %d", len(det_old))
 
-    # Show seeds with wrong slot-c count
-    c_counts = det_old[det_old["slot"] == "c"].groupby("seed_id").size()
-    bad_seeds = c_counts[c_counts != 5].index.tolist()
-    logger.info("  Seeds with slot-c count != 5: %d", len(bad_seeds))
-    if bad_seeds[:5]:
-        for sid in bad_seeds[:5]:
-            logger.info("    %s: %d slot-c variants", sid, c_counts[sid])
-
-    # ---------------------------------------------------------------- seeds
     logger.info("Loading main seeds ...")
     from Dataset.sample_seeds import sample_seeds
     main_seeds, _ = sample_seeds()
-    logger.info("  %d main seeds loaded", len(main_seeds))
+    main_seeds = main_seeds[
+        main_seeds["seed_source"].astype(str).str.lower().isin(_AUDIT_SOURCES)
+    ].reset_index(drop=True)
+    logger.info("  %d audit seeds loaded (WinoBias excluded)", len(main_seeds))
 
     # ---------------------------------------------------------------- regen
     logger.info("Re-generating deterministic slots (a/b/c) with updated equivalence sets ...")
@@ -82,6 +81,20 @@ def main() -> bool:
     new_det_rows = generate_pentad_deterministic(main_seeds, rng)
     new_det_df = pd.DataFrame(new_det_rows)
     logger.info("  New det rows: %d", len(new_det_df))
+    ok_seed_ids = set(new_det_df["seed_id"].unique())
+    excluded = set(main_seeds["seed_id"]) - ok_seed_ids
+    manifest = {
+        "n_excluded": len(excluded),
+        "n_included": len(ok_seed_ids),
+        "excluded_seed_ids": sorted(excluded),
+        "reason": "pentad deterministic generation failed (no valid swap token or gold)",
+    }
+    manifest_path = SEEDS_DIR / "excluded_seeds.json"
+    with open(manifest_path, "w") as fh:
+        json.dump(manifest, fh, indent=2)
+    logger.info("Seed manifest: %d included, %d excluded -> %s", len(ok_seed_ids), len(excluded), manifest_path)
+    if excluded:
+        logger.warning("Excluded seed sample: %s", sorted(excluded)[:10])
 
     # Verify new slot-c counts
     new_c_counts = new_det_df[new_det_df["slot"] == "c"].groupby("seed_id").size()
@@ -91,10 +104,11 @@ def main() -> bool:
     else:
         logger.info("  All seeds have exactly 5 slot-c variants.")
 
-    # ---------------------------------------------------------------- merge
-    combined = pd.concat([new_det_df, api_df], ignore_index=True)
+    # Det-only rows until API regen completes; drop partial d/e to avoid mixed state.
+    combined = new_det_df.copy()
     combined = combined.sort_values(["seed_id", "slot", "subvariant"]).reset_index(drop=True)
-    logger.info("  Combined rows: %d (expected %d)", len(combined), len(main_seeds) * 12)
+    logger.info("  Det rows saved: %d (expected %d)", len(combined), len(ok_seed_ids) * 7)
+    logger.info("  Next step: run regenerate_api_slots.py for d/e DeepSeek prompts.")
 
     if args.dry_run:
         logger.info("[dry-run] Not saving. Rows that would be written: %d", len(combined))
@@ -108,10 +122,14 @@ def main() -> bool:
     logger.info("Validating patched dataset ...")
     from Dataset.validate_pentad import run_all_validations
     try:
-        run_all_validations(combined)
+        run_all_validations(combined, require_api_slots=False)
     except Exception as exc:
         logger.error("Validation FAILED after patch: %s", exc)
         return False
+
+    from Dataset.validate_pentad import write_pentad_manifest
+
+    write_pentad_manifest(combined)
 
     logger.info("Patch complete. Dataset valid.")
     return True

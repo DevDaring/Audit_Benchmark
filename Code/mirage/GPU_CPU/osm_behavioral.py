@@ -299,6 +299,17 @@ def evaluate_osm_model(
                 _parse_raw_response(raw_response)
             )
 
+            if not success_flag and j < len(formatted_prompts):
+                try:
+                    raw_response = _generate_constrained(
+                        model, tokenizer, formatted_prompts[j], temperature, max_tokens
+                    )
+                    success_flag, parsed_answer, parsed_confidence, parsed_rationale, parse_method, failure_reason = (
+                        _parse_raw_response(raw_response)
+                    )
+                except Exception:
+                    pass
+
             rows.append(
                 {
                     "run_id": run_id,

@@ -227,6 +227,15 @@ def sample_seeds(force: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     if _SEEDS_PATH.exists() and not force:
         logger.info("Seeds cache hit: %s", _SEEDS_PATH)
         main_seeds = pd.read_parquet(_SEEDS_PATH)
+        # Re-normalize categories for legacy caches built before B6 fix.
+        main_seeds["seed_category"] = main_seeds["seed_category"].apply(_normalise_category)
+        # Strip WinoBias if an older cache incorrectly included it in main seeds.
+        n_wino = (main_seeds["seed_source"] == "winobias").sum()
+        if n_wino > 0:
+            logger.warning(
+                "Removing %d WinoBias rows from cached main_seeds (held-out only).", n_wino
+            )
+            main_seeds = main_seeds[main_seeds["seed_source"] != "winobias"].reset_index(drop=True)
         dev_path = SEEDS_DIR / "dev_seeds.parquet"
         dev_seeds = pd.read_parquet(dev_path) if dev_path.exists() else pd.DataFrame()
         logger.info(
@@ -260,14 +269,23 @@ def sample_seeds(force: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
         len(wino_seeds), _WINO_HELDOUT_PATH,
     )
 
-    # Main audited set: BBQ + CrowS + StereoSet only
+    # Main audited set: BBQ + CrowS + StereoSet only (WinoBias held out separately).
     main_seeds = pd.concat([bbq_seeds, crows_seeds, stereo_seeds], ignore_index=True)
 
-    # Log actual vs target counts
-    actual = {src: (main_seeds["seed_source"] == src).sum()
+    if (main_seeds["seed_source"] == "winobias").any():
+        raise RuntimeError("WinoBias rows found in main_seeds — must be held out only.")
+
+    # Log actual vs target counts; fail if any source is critically short.
+    actual = {src: int((main_seeds["seed_source"] == src).sum())
               for src in ["bbq", "crows_pairs", "stereoset"]}
+    _MIN_ACCEPTABLE = {"bbq": 200, "crows_pairs": 150, "stereoset": 150}
     for src, n in actual.items():
         target = SEED_COUNTS[src]
+        if n < _MIN_ACCEPTABLE[src]:
+            raise RuntimeError(
+                f"Seed count for {src} is {n} (minimum {_MIN_ACCEPTABLE[src]}, "
+                f"target {target}). Re-download source data before building pentad."
+            )
         if n < target:
             logger.warning(
                 "Seed count shortfall for %s: expected %d, got %d. "

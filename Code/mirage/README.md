@@ -1,6 +1,6 @@
 # MIRAGE — Mechanism-Indexed Reliability Audit for Group-bias Evaluation
 
-MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It operationalises the Epistematics methodology of Kalaitzidis (2026) by combining behavioural probing across five probe slots with causal activation patching (CDVA). Eight models — four open-source (OSM) and four API-served — are evaluated on 870 seeds drawn from BBQ, CrowS-Pairs, and StereoSet. WinoBias is held out for predictive-validity testing. Results are structured around Kalaitzidis's five failure modes (FM1–FM5) and reported with pre-registered statistical methods.
+MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It operationalises the Epistematics methodology of Kalaitzidis (2026) by combining behavioural probing across five probe slots with causal activation patching (CDVA). Eight models — four open-source (OSM) and four API-served — are evaluated on **596 audit seeds** drawn from BBQ, CrowS-Pairs, and StereoSet (N = 596 × 12 = 7,152 pentad rows). WinoBias is held out for predictive-validity testing. Results are structured around Kalaitzidis's five failure modes (FM1–FM5) and reported with pre-registered statistical methods.
 
 ---
 
@@ -130,16 +130,27 @@ mirage/
 │   ├── download_stereoset.py
 │   ├── download_winobias.py
 │   ├── sample_seeds.py          # Stratified seed selection (RNG seed=20260101)
-│   ├── pentad_generator.py      # Orchestrates all 12 probe variants per seed
-│   ├── cot_attack_generator.py  # Slot (e) via DeepSeek API
-│   ├── context_shift_drafter.py # Slot (d) via DeepSeek API
-│   └── validate_pentad.py       # Schema + completeness validation
+│   ├── pentad_generator.py      # Slots a/b/c deterministic; iso-control slot-b neutralization
+│   ├── cot_attack_generator.py  # Slot (e) via DeepSeek API (parallel 2-key workers)
+│   ├── context_shift_drafter.py # Slot (d) via DeepSeek API (parallel 2-key workers)
+│   ├── validate_pentad.py       # Schema, completeness, slot-b grammar, production gates
+│   ├── gold_utils.py            # Scorable gold rules (BBQ "Unknown" is valid)
+│   └── seeds/
+│       ├── pentad_dataset.parquet
+│       ├── pentad_manifest.json # SHA-256 after validation
+│       └── excluded_seeds.json  # Documented exclusions (22 StereoSet seeds)
+│
+├── patch_slot_b_only.py         # Patch slot-b only; preserves d/e (no API calls)
+├── patch_det_slots.py           # Rebuild a/b/c from seeds (drops d/e — use only when det broken)
+├── regenerate_api_slots.py      # Regenerate DeepSeek slots d/e; incremental save + checkpoints
+├── run_dataset.py               # Full local dataset build entry-point
 │
 ├── GPU_CPU/
 │   ├── load_osm.py              # bf16 + flash-attention-2 loader
 │   ├── osm_behavioral.py        # Behavioural evaluation, 4 OSM models
 │   ├── cdva_patching.py         # Causal activation patching, 10 pairs/seed
 │   ├── cdva_calibration.py      # tau threshold calibration on 50-seed dev set
+│   ├── pipeline_guards.py       # Clears stale GPU results when pentad SHA changes
 │   └── utils_attention.py       # Unified TransformerLens / nnsight interface
 │
 ├── CPU_Only/
@@ -207,7 +218,7 @@ validate_winobias(download_winobias())
 print('All datasets validated.')
 "
 
-# Step 2 — Sample 870 main seeds + 50 dev seeds (deterministic, RNG=20260101)
+# Step 2 — Sample main + dev seeds (deterministic, RNG=20260101)
 python3 -c "
 from Dataset.sample_seeds import sample_seeds, verify_seeds_integrity
 main, dev = sample_seeds()
@@ -215,22 +226,28 @@ verify_seeds_integrity()
 print(f'Seeds: {len(main)} main, {len(dev)} dev')
 "
 
-# Step 3 -- Generate pentad dataset (slots a/b/c deterministic; d/e via DeepSeek)
-#            Resume-capable: if interrupted, restart and it picks up from checkpoint.
+# Step 3 — Generate pentad (slots a/b/c deterministic; d/e via DeepSeek)
 python3 run_dataset.py
 
-# Step 3b (recovery only) -- If slot-c counts were wrong after a failed build,
-#           patch deterministic slots without re-calling any API:
+# Step 3a — Patch slot-b iso-control only (preserves existing d/e; no API calls)
+python3 patch_slot_b_only.py
+
+# Step 3b — Regenerate DeepSeek slots d/e after slot-a text changed
+python3 regenerate_api_slots.py
+python3 regenerate_api_slots.py --keep-checkpoint   # resume after interrupt
+
+# Step 3c (recovery) — Rebuild deterministic a/b/c only when equivalence sets changed
+# WARNING: patch_det_slots.py saves det-only rows and drops d/e until regen completes.
 python3 patch_det_slots.py
 
-# Step 4 -- Validate pentad completeness (12 prompts per seed)
+# Step 4 — Production validation gate (required before GPU)
 python3 -c "
 import pandas as pd
-from Dataset.validate_pentad import run_all_validations
-from config import RESULTS_DIR
-df = pd.read_parquet(RESULTS_DIR / 'pentad_dataset.parquet')
-run_all_validations(df)
-print('Pentad dataset valid.')
+from Dataset.validate_pentad import assert_production_ready, validate_slot_b_grammar
+df = pd.read_parquet('Dataset/seeds/pentad_dataset.parquet')
+validate_slot_b_grammar(df)
+assert_production_ready(df)
+print('Production ready:', len(df), 'rows')
 "
 
 # Step 5 -- OSM behavioural evaluation (GPU required)
@@ -412,7 +429,45 @@ The generator (DeepSeek) is used only for slot (d) and (e) template generation. 
 
 ---
 
+## Akash GPU Deployment (Production)
+
+For unattended GPU runs on Akash Network with persistent `/data` storage, checkpoint markers, and automated recovery, see **`Help/Akash_VM_Setup.md`** and **`Help/VM_progress.md`**.
+
+Key production rules:
+
+- Never start GPU until `assert_production_ready()` passes (7,152 rows with d/e slots).
+- Use `patch_slot_b_only.py` for iso-control fixes — not `patch_det_slots.py` when d/e already exist.
+- `_full_pipeline.py` skips `patch_det_slots` when deterministic slots already validate.
+- DeepSeek regeneration uses both API keys in parallel with JSON checkpoints.
+- `autonomous_guard.sh` on the VM validates the pentad and starts the supervisor after regen.
+
+Local monitoring:
+
+```bash
+python akash/_pipeline_health.py
+python akash/_vm_progress.py
+python akash/_regen_progress.py
+```
+
+---
+
 ## Troubleshooting
+
+### Slot-b grammar or missing d/e rows
+
+Run the production gate locally or on the VM:
+
+```bash
+python3 patch_slot_b_only.py
+python3 regenerate_api_slots.py --keep-checkpoint
+python3 -c "
+import pandas as pd
+from Dataset.validate_pentad import assert_production_ready
+assert_production_ready(pd.read_parquet('Dataset/seeds/pentad_dataset.parquet'))
+"
+```
+
+`validate_slot_b_grammar()` rejects ungrammatical iso-controls (`person man`, `Person and Person`, `Context: person`, etc.).
 
 ### Flash-attention fails to import
 

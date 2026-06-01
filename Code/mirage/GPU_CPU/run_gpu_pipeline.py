@@ -20,6 +20,7 @@ Implements / builds on / cites:
 Part of the MIRAGE codebase. See README.md for full project context.
 """
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -53,12 +54,24 @@ def main() -> bool:
         return False
 
     import pandas as pd
+
     pentad_df = pd.read_parquet(pentad_path)
+
+    # Hard gate — refuse GPU work on partial or invalid pentad.
+    from Dataset.validate_pentad import assert_production_ready, write_pentad_manifest
+
+    assert_production_ready(pentad_df)
+    write_pentad_manifest(pentad_df)
+
+    from GPU_CPU.pipeline_guards import clear_stale_gpu_results_if_pentad_changed
+
+    state_dir = Path(os.environ.get("STATE_DIR", "/data/state"))
+    clear_stale_gpu_results_if_pentad_changed(state_dir)
+
     logger.info(
-        "Pentad dataset loaded: %d rows | %d unique seeds | %d unique seed_ids",
+        "Pentad dataset loaded: %d rows | %d unique seeds",
         len(pentad_df),
-        pentad_df["seed_id"].nunique() if "seed_id" in pentad_df.columns else -1,
-        pentad_df["seed_id"].nunique() if "seed_id" in pentad_df.columns else -1,
+        pentad_df["seed_id"].nunique(),
     )
 
     # ── 1. Load all 4 OSM models simultaneously ────────────────────────────

@@ -18,8 +18,10 @@ Part of the MIRAGE codebase. See README.md for full project context.
 import json
 import logging
 import sys
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,7 @@ from config import (
     DEEPSEEK_PRIMARY_MODEL_NAME,
     SEEDS_DIR,
 )
+from Dataset.prompt_utils import validate_api_slot_results
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +67,8 @@ _COT_SYSTEM_PROMPT = (
     '"e3_antistereo_push": "<full prompt>"}'
 )
 
-_MAX_RETRIES_PER_KEY = 1
+_MAX_RETRIES_PER_KEY = 5
+_PARALLEL_WORKERS = max(1, min(len(DEEPSEEK_KEYS), 2))
 
 
 class _RoundRobin:
@@ -90,7 +94,7 @@ def _call_deepseek(client: OpenAI, model: str, seed_text: str) -> dict[str, str]
             ],
             response_format={"type": "json_object"},
             temperature=0.7,
-            max_tokens=512,
+            max_tokens=1500,
             timeout=_TIMEOUT,
         )
         raw = response.choices[0].message.content or ""
@@ -101,7 +105,73 @@ def _call_deepseek(client: OpenAI, model: str, seed_text: str) -> dict[str, str]
         return None
 
 
-def generate_cot_attacks(seeds_df: pd.DataFrame) -> list[dict]:
+def _generate_cot_for_seed(
+    seed_row: pd.Series,
+    key: str,
+    model: str,
+    generator_version: str,
+    timestamp: str,
+) -> tuple[str, list[dict]]:
+    seed_id = str(seed_row.get("seed_id", uuid.uuid4()))
+    text = str(
+        seed_row.get("slot_a_prompt")
+        or seed_row.get("question")
+        or seed_row.get("sent_more")
+        or seed_row.get("sentence", "")
+    )
+    _COT_KEYS = ("e1_neutral", "e2_stereo_push", "e3_antistereo_push")
+
+    result: dict[str, str] | None = None
+    keys_to_try = [key] + [k for k in DEEPSEEK_KEYS if k != key]
+    for use_key in keys_to_try:
+        client = OpenAI(api_key=use_key, base_url=DEEPSEEK_API_BASE_URL, timeout=_TIMEOUT)
+        for attempt in range(_MAX_RETRIES_PER_KEY + 1):
+            result = _call_deepseek(client, model, text)
+            if result and validate_api_slot_results(result, text, _COT_KEYS):
+                logger.info("CoT attack OK seed=%s (attempt %d)", seed_id, attempt)
+                break
+            result = None
+            logger.warning(
+                "CoT attack rejected (missing slot-a embed) seed=%s attempt=%d",
+                seed_id,
+                attempt,
+            )
+        if result is not None:
+            break
+
+    if result is None:
+        raise RuntimeError(
+            f"CoT attack generation FAILED for seed {seed_id} after all retries."
+        )
+
+    gold_answer = str(seed_row.get("gold_answer", "unknown"))
+    seed_rows = []
+    for subvariant in _COT_KEYS:
+        prompt_id = f"{seed_id}_e_{subvariant}"
+        seed_rows.append(
+            {
+                "seed_id": seed_id,
+                "seed_source": seed_row.get("seed_source", ""),
+                "seed_category": seed_row.get("seed_category", ""),
+                "seed_subcategory": seed_row.get("seed_subcategory", ""),
+                "prompt_id": prompt_id,
+                "slot": "e",
+                "subvariant": subvariant,
+                "prompt_text": result.get(subvariant, ""),
+                "gold_answer": gold_answer,
+                "generated_by": "deepseek_api",
+                "generator_model": generator_version,
+                "generator_timestamp": timestamp,
+            }
+        )
+    return seed_id, seed_rows
+
+
+def generate_cot_attacks(
+    seeds_df: pd.DataFrame,
+    clear_checkpoint: bool = False,
+    remove_checkpoint_on_success: bool = False,
+) -> list[dict]:
     """
     Generate slot (e) CoT-attack prompts for all seeds.
     Incrementally checkpoints to disk so progress survives crashes.
@@ -112,6 +182,10 @@ def generate_cot_attacks(seeds_df: pd.DataFrame) -> list[dict]:
         One dict per subvariant per seed (3 per seed: e1, e2, e3).
     """
     SEEDS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if clear_checkpoint and _CHECKPOINT_PATH.exists():
+        _CHECKPOINT_PATH.unlink()
+        logger.info("Cleared stale CoT-attack checkpoint.")
 
     # Load existing checkpoint
     checkpoint: dict[str, list[dict]] = {}
@@ -124,80 +198,73 @@ def generate_cot_attacks(seeds_df: pd.DataFrame) -> list[dict]:
             logger.warning("Could not load checkpoint (will regenerate): %s", exc)
             checkpoint = {}
 
-    rr = _RoundRobin(DEEPSEEK_KEYS)
     rows: list[dict] = []
     model = DEEPSEEK_PRIMARY_MODEL_NAME
     generator_version = f"deepseek/{model}"
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    # Replay already-processed seeds first
-    for seed_id, seed_rows in checkpoint.items():
-        rows.extend(seed_rows)
+    target_seed_ids = set(seeds_df["seed_id"].astype(str))
+    _COT_KEYS = ("e1_neutral", "e2_stereo_push", "e3_antistereo_push")
 
-    for _, seed_row in seeds_df.iterrows():
-        seed_id = seed_row.get("seed_id", str(uuid.uuid4()))
-        if seed_id in checkpoint:
-            continue  # already done
-
-        # Use the full slot_a_prompt if available (added by pentad_generator
-        # before calling this function -- fixes E1 / review finding A1).
-        text = (
+    for seed_id, seed_rows in list(checkpoint.items()):
+        if seed_id not in target_seed_ids:
+            del checkpoint[seed_id]
+            continue
+        seed_row = seeds_df[seeds_df["seed_id"] == seed_id].iloc[0]
+        original = str(
             seed_row.get("slot_a_prompt")
             or seed_row.get("question")
             or seed_row.get("sent_more")
             or seed_row.get("sentence", "")
         )
-        text = str(text)
+        result_map = {r["subvariant"]: r["prompt_text"] for r in seed_rows}
+        if validate_api_slot_results(result_map, original, _COT_KEYS):
+            rows.extend(seed_rows)
+        else:
+            del checkpoint[seed_id]
+            logger.warning("Dropped stale CoT checkpoint for seed %s.", seed_id)
 
-        result: dict[str, str] | None = None
-        for _attempt in range(len(DEEPSEEK_KEYS) * (_MAX_RETRIES_PER_KEY + 1)):
-            key, key_idx = rr.next()
-            logger.debug("CoT attempt %d key_idx=%d seed=%s", _attempt, key_idx, seed_id)
-            client = OpenAI(api_key=key, base_url=DEEPSEEK_API_BASE_URL, timeout=_TIMEOUT)
-            result = _call_deepseek(client, model, text)
-            if result:
-                logger.debug("CoT OK key_idx=%d seed=%s", key_idx, seed_id)
-                break
-
-        if result is None:
-            logger.warning("CoT attack generation FAILED for seed %s -- skipping.", seed_id)
+    pending: list[tuple[pd.Series, str]] = []
+    for idx, (_, seed_row) in enumerate(seeds_df.iterrows()):
+        seed_id = str(seed_row.get("seed_id", ""))
+        if seed_id in checkpoint:
             continue
+        pending.append((seed_row, DEEPSEEK_KEYS[idx % len(DEEPSEEK_KEYS)]))
 
-        gold_answer = str(seed_row.get("gold_answer", "unknown"))
-        seed_rows = []
-        for subvariant in ("e1_neutral", "e2_stereo_push", "e3_antistereo_push"):
-            prompt_id = f"{seed_id}_e_{subvariant}"
-            seed_rows.append(
-                {
-                    "seed_id": seed_id,
-                    "seed_source": seed_row.get("seed_source", ""),
-                    "seed_category": seed_row.get("seed_category", ""),
-                    "seed_subcategory": seed_row.get("seed_subcategory", ""),
-                    "prompt_id": prompt_id,
-                    "slot": "e",
-                    "subvariant": subvariant,
-                    "prompt_text": result.get(subvariant, ""),
-                    "gold_answer": gold_answer,
-                    "generated_by": "deepseek_api",
-                    "generator_model": generator_version,
-                    "generator_timestamp": timestamp,
-                }
-            )
+    ckpt_lock = threading.Lock()
 
-        rows.extend(seed_rows)
-        checkpoint[seed_id] = seed_rows
-        # Incremental save after each seed
-        try:
+    def _save_seed(seed_id: str, seed_rows: list[dict]) -> None:
+        with ckpt_lock:
+            rows.extend(seed_rows)
+            checkpoint[seed_id] = seed_rows
             with open(_CHECKPOINT_PATH, "w") as fh:
                 json.dump(checkpoint, fh)
-        except Exception as exc:
-            logger.warning("Checkpoint write failed: %s", exc)
 
-    logger.info("CoT attack generation complete: %d prompts for %d seeds.", len(rows), len(seeds_df))
+    if pending:
+        logger.info(
+            "CoT attack: %d seeds pending, %d parallel workers.",
+            len(pending),
+            _PARALLEL_WORKERS,
+        )
+        with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
+            futures = {
+                pool.submit(
+                    _generate_cot_for_seed,
+                    seed_row,
+                    key,
+                    model,
+                    generator_version,
+                    timestamp,
+                ): str(seed_row.get("seed_id", ""))
+                for seed_row, key in pending
+            }
+            for fut in as_completed(futures):
+                seed_id, seed_rows = fut.result()
+                _save_seed(seed_id, seed_rows)
 
-    # Clean up checkpoint on successful completion
-    if _CHECKPOINT_PATH.exists():
+    if remove_checkpoint_on_success and _CHECKPOINT_PATH.exists():
         _CHECKPOINT_PATH.unlink()
         logger.info("CoT-attack checkpoint removed.")
 
+    logger.info("CoT attack generation complete: %d prompts for %d seeds.", len(rows), len(seeds_df))
     return rows
