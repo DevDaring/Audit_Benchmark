@@ -1,447 +1,583 @@
 # MIRAGE — Mechanism-Indexed Reliability Audit for Group-bias Evaluation
 
-MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It operationalises the Epistematics methodology of Kalaitzidis (2026) by combining behavioural probing across five probe slots with causal activation patching (CDVA). Eight models — four open-source (OSM) and four API-served — are evaluated on **596 audit seeds** drawn from BBQ, CrowS-Pairs, and StereoSet (N = 596 × 12 = 7,152 pentad rows). WinoBias is held out for predictive-validity testing. Results are structured around Kalaitzidis's five failure modes (FM1–FM5) and reported with pre-registered statistical methods.
+**One-stop research document** for the MIRAGE project: theory, algebraic validity framework, experimental design, codebase, pipeline, and deployment.
+
+MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It operationalises the Epistematics methodology of Kalaitzidis (2026) by combining behavioural probing across five probe slots with causal activation patching (CDVA). Eight models — four open-source (OSM) and four API-served — are evaluated on **596 audit seeds** drawn from BBQ, CrowS-Pairs, and StereoSet (N = 596 × 12 = **7,152 pentad rows**). WinoBias is held out for predictive-validity testing.
+
+**Target venue:** IEEE Transactions on Computational Social Systems (TCSS).  
+**Framing:** A measurement-validity instrument for auditing the sociotechnical reliability of bias benchmarks used to certify LLMs before deployment.
 
 ---
 
-## Citation Summary
+## Table of Contents
 
-| Key reference | Details |
+1. [Research Problem and Contributions](#1-research-problem-and-contributions)
+2. [Theoretical Foundation](#2-theoretical-foundation)
+3. [Probe-Algebraic Validity Framework](#3-probe-algebraic-validity-framework)
+4. [The Pentad Probe Design](#4-the-pentad-probe-design)
+5. [Failure Modes as Law Violations](#5-failure-modes-as-law-violations)
+6. [CDVA: Causal Commutators](#6-cdva-causal-commutators)
+7. [Benchmark Quality Metrics](#7-benchmark-quality-metrics)
+8. [Statistical Methodology](#8-statistical-methodology)
+9. [Experimental Design](#9-experimental-design)
+10. [Repository Layout](#10-repository-layout)
+11. [Installation and Environment](#11-installation-and-environment)
+12. [Full-Run Pipeline](#12-full-run-pipeline)
+13. [Result Schemas](#13-result-schemas)
+14. [Akash GPU Deployment](#14-akash-gpu-deployment)
+15. [Troubleshooting](#15-troubleshooting)
+16. [Reproducibility Checklist](#16-reproducibility-checklist)
+17. [Related Documentation](#17-related-documentation)
+18. [Citations](#18-citations)
+
+---
+
+## 1. Research Problem and Contributions
+
+### 1.1 The problem
+
+Bias benchmarks are used to certify LLMs before deployment in hiring, healthcare, education, and content moderation. A benchmark that **passes** a model does not guarantee the model is fair — it may only mean the benchmark **measures the wrong thing**. Kalaitzidis (2026) calls this the *evaluation trap*: benchmark design is a theoretical commitment, not a neutral measurement.
+
+Bean et al. (2025) show construct-validity failures at scale. Their approach is checklist-based. MIRAGE goes further: it is an **instrument** that operationalises discriminative validity with **mechanism-level causal intervention** (CDVA).
+
+### 1.2 Core contributions
+
+1. **Probe-Algebraic Validity (PAV)** — A formal framework that represents benchmark items as composable probe transformations with explicit invariance laws, and scores quality by structural and measurement defect rates (Section 3).
+2. **The Pentad probe** — Five slots (a–e), twelve prompts per seed, that instantiate the probe algebra on BBQ, CrowS-Pairs, and StereoSet.
+3. **CDVA (Causal Discriminative Validity Audit)** — Activation patching tests whether model responses **commute** with counterfactual demographic swaps (Section 6).
+4. **Validity leaderboard** — A 4×5 matrix (benchmark × failure mode) quantifying where source benchmarks fail discriminative validity.
+5. **Predictive validity on WinoBias** — Classifiers trained on MIRAGE failure patterns predict held-out coreference bias, demonstrating the instrument generalises beyond the audit set.
+
+### 1.3 What MIRAGE is not
+
+- Not a new bias benchmark competing with BBQ or CrowS-Pairs.
+- Not a single toxicity or fairness score.
+- Not proof that bias "forms a group" in the strict algebraic sense (Section 3.6 explains why).
+
+---
+
+## 2. Theoretical Foundation
+
+MIRAGE rests on classical measurement theory, adapted to LLM benchmark auditing.
+
+| Concept | Source | Role in MIRAGE |
+|---|---|---|
+| **Construct validity** | Cronbach & Meehl (1955) | Does the benchmark measure the construct it claims? |
+| **Discriminative validity** | Campbell & Fiske (1959) | Does the instrument distinguish valid from invalid measurement? |
+| **Predictive validity** | Messick (1995) | Do audit signals predict failure on held-out tasks (WinoBias)? |
+| **Interventional validity** | Pearl (2009); Kalaitzidis (2026) | Does the model respond correctly under `do(demographic_token := alternative)`? |
+| **Counterfactual fairness** | Kusner et al. (2017) | Swaps within demographic equivalence classes |
+
+Kalaitzidis defines five **failure modes (FM1–FM5)** that a valid bias instrument must detect. MIRAGE maps each failure mode to a **probe law violation** (Section 5).
+
+---
+
+## 3. Probe-Algebraic Validity Framework
+
+This section is the central theoretical contribution. It explains how bias and benchmark quality can be represented as **violations of invariance laws** under a fixed set of probe transformations — an algebraic structure in the sense of labeled transition systems with validity predicates, not in the sense of classical group theory.
+
+### 3.1 Motivation: why algebra?
+
+Most bias benchmarks provide a **single prompt per item** and a **single score**. That collapses a rich measurement problem into one number. MIRAGE instead asks:
+
+> Under which **transformations** of a benchmark item should a valid model's answer stay the same, change predictably, or remain causally invariant?
+
+Transformations compose (apply slot b after slot a, swap token e₁ then e₂, etc.). Validity is the statement that certain **diagrams commute**. When they do not, we observe a **defect** — that is the operational meaning of bias in this framework.
+
+### 3.2 Formal setup
+
+For each audit seed `s` in seed set `S`:
+
+| Symbol | Meaning |
 |---|---|
-| Kalaitzidis (2026) | "The Evaluation Trap: Benchmark Design as Theoretical Commitment." arXiv:2605.14167 |
-| Parrish et al. (2022) | "BBQ: A Hand-Built Bias Benchmark for Question Answering." Findings of ACL 2022. |
-| Nangia et al. (2020) | "CrowS-Pairs: A Challenge Dataset for Measuring Social Biases in Masked Language Models." EMNLP 2020. |
-| Nadeem et al. (2021) | "StereoSet: Measuring stereotypical bias in pretrained language models." ACL-IJCNLP 2021. |
-| Zhao et al. (2018) | "Gender Bias in Coreference Resolution: Evaluation and Debiasing Methods." NAACL 2018. (WinoBias) |
-| Shaikh et al. (2023) | "On Second Thought, Let's Not Think Step by Step! Bias and Toxicity in Zero-Shot Reasoning." ACL 2023. |
-| Meng et al. (2022) | "Locating and Editing Factual Associations in GPT." NeurIPS 2022. (ROME, activation patching) |
-| Pearl (2009) | *Causality.* Cambridge University Press. (do-calculus framing) |
-| Efron & Tibshirani (1993) | *An Introduction to the Bootstrap.* Chapman & Hall. |
-| Bean et al. (2025) | "Measuring what Matters: Construct Validity in Large Language Model Benchmarks." NeurIPS 2025 Datasets and Benchmarks Track. |
-| Wang et al. (2025) | "Fairness through Difference Awareness: Measuring Desired Group Discrimination in LLMs." ACL 2025. |
+| `𝒯` | Text space (all possible prompt strings) |
+| `𝒜` | Attribute axes: `{religion, gender, race_ethnicity, …}` from `Dataset/equivalence_sets.yaml` |
+| `E_α` | Finite **equivalence set** for axis α ∈ 𝒜 (e.g. religion tokens) |
+| `g(s) ∈ 𝒯` | Prompt produced by probe generator `g` |
+
+**Generator set** (probe operators):
+
+```
+𝒢 = { id, ν, σ_α, δ₊, δ₋, ε₀, ε₊, ε₋ }
+```
+
+| Generator | MIRAGE slot | Description |
+|---|---|---|
+| `id` | (a) surface | Identity — original benchmark text |
+| `ν` | (b) iso-control | Neutralise protected demographic token |
+| `σ_α(e→e')` | (c) counterfactual | Swap demographic token within `E_α` |
+| `δ₊, δ₋` | (d) context shift | Valid vs harmful context perturbation |
+| `ε₀, ε₊, ε₋` | (e) CoT attack | Neutral, stereotype-push, antistereotype-push framing |
+
+Each seed yields a **labeled transition system**:
+
+```
+s ──id──► x_a
+s ──ν───► x_b
+s ──σ───► x_c₁, x_c₂, …, x_c₅
+s ──δ───► x_d_valid, x_d_harmful
+s ──ε───► x_e1, x_e2, x_e3
+```
+
+The model `M` is a map `M: 𝒯 → Answer`. CDVA tests whether `M` **commutes** with `σ` at the activation level.
+
+### 3.3 Structural axioms (benchmark construction quality)
+
+These are **laws the benchmark dataset must satisfy** before any model is evaluated. They define **dataset quality** `Q(B)`.
+
+| Axiom | Law | MIRAGE enforcement |
+|---|---|---|
+| **A1 — Gold coherence** | `gold(ν(s)) = gold(s)` | Slot-b preserves scorable gold; `gold_utils.py` |
+| **A2 — Swap coherence** | Counterfactuals in `E_α` preserve task semantics | Slot-c variants distinct; BBQ `"Unknown"` valid |
+| **A3 — Probe closure** | ∀g ∈ 𝒢: `g(s)` embeds surface text of `s` | `validate_deepseek_embeds_slot_a()` |
+| **A4 — Iso legibility** | If protected token present, then `ν(s) ≠ s` | Slot-b differs from slot-a (>50% of seeds) |
+| **A5 — Slot completeness** | Each seed has exactly 12 prompts | `validate_completeness()` |
+| **A6 — Grammar legibility** | `ν(s)` is grammatical English | `validate_slot_b_grammar()` |
+
+**Structural defect** for seed `s`:
+
+```
+StructDefect(s) = Σₖ wₖ · 𝟙[axiom Aₖ fails on s]
+```
+
+**Benchmark construction quality**:
+
+```
+Q(B) = 1 − (1/|S|) Σ_{s∈S} StructDefect(s)
+```
+
+Seeds that fail A2 or A4 are documented in `Dataset/seeds/excluded_seeds.json` (22 StereoSet seeds in the current build). They lie **outside** the well-formed subalgebra.
+
+### 3.4 Measurement axioms (model discriminative validity)
+
+These are **laws a valid model should satisfy** under probing. Violations produce the failure modes FM1–FM5.
+
+| Law | Statement | Failure mode |
+|---|---|---|
+| **M1 — Proxy invariance** | Correct on `s` ⇒ correct on `ν(s)` | FM1 |
+| **M2 — Causal swap invariance** | `M(σ_i(s)) ≈ M(σ_j(s))` under do-swap | FM2 |
+| **M3 — Context stability** | Correct on `(a),(b)` ⇒ correct on valid `δ₊(s)` | FM3 |
+| **M4 — Low criterion leakage** | Low answer variance on `s` at temperature > 0 | FM4 |
+| **M5 — CoT robustness** | Correct on `(a)–(d)` ⇒ correct on neutral `ε₀(s)` | FM5 |
+
+**Measurement defect** for model `M` and seed `s`:
+
+```
+MeasDefect(M, s) = Σⱼ vⱼ · 𝟙[law Mⱼ fails for (M, s)]
+```
+
+**Discriminative validity score**:
+
+```
+V(M, B) = 1 − (1/|S||ℳ|) Σ_{M,s} MeasDefect(M, s)
+```
+
+### 3.5 Commutation diagrams
+
+Bias is **non-commutativity** of model response with probe transformations.
+
+**FM1 (proxy substitution)** — diagram fails to commute:
+
+```
+     M
+s ──────► M(s)     correct
+│           │
+ν           ν
+▼           ▼
+ν(s) ───M──► M(ν(s))   wrong  ← defect
+```
+
+**FM2 (architectural indistinguishability)** — behavioral pass but causal fail:
+
+```
+σ_i(s) ──M──► M(σ_i(s)) ≈ M(σ_j(s))  (behavioral: pass)
+     │                    ↑
+     │ patch              │ |Δ_logit| > τ
+     ▼                    │
+σ_j(s) ──M──► patch(M, i→j)  (CDVA: fail)  ← defect
+```
+
+The **CDVA commutator** for swap pair `(i, j)`:
+
+```
+Commutator(M, s, i, j) = d(M(σ_j(s)), patch(M, σ_i(s), σ_j(s)))
+```
+
+CDVA score = 1 − normalised |Commutator|. Low score ⇒ FM2 defect.
+
+**MIRAGE-Full pass** = MIRAGE-B pass AND CDVA commutator below calibrated threshold τ.
+
+### 3.6 Why this is not strict group theory
+
+Equivalence sets `E_α` are **finite sets**, not groups:
+
+- No closure under composition (swap Muslim→Christian then Christian→Hindu is not necessarily a defined single swap in `E_α`).
+- Text substitution is **not a homomorphism**: grammar can break (`person man`, `Context: person`). MIRAGE's slot-b neutralisation (`pentad_generator.py`) exists precisely because naive substitution violates A6.
+- Only **5 of |E_α|** tokens are sampled per seed, not the full orbit.
+
+The correct mathematical object is a **partial probe magma with validity predicates** — a labeled transition system where some compositions are undefined and axioms A1–A6 filter well-formed states. Calling this "group theory" would overclaim; **probe-algebraic validity** is the precise term.
+
+### 3.7 From algebra to the leaderboard
+
+The **4×5 validity leaderboard** (`CPU_Only/leaderboard.py`) is a **defect incidence matrix**:
+
+```
+              FM1    FM2    FM3    FM4    FM5
+BBQ           p₁₁    p₁₂    p₁₃    p₁₄    p₁₅
+CrowS-Pairs   p₂₁    p₂₂    p₂₃    p₂₄    p₂₅
+StereoSet     p₃₁    p₃₂    p₃₃    p₃₄    p₃₅
+```
+
+Each cell `p_ij` = proportion of seeds (averaged across models) where law `M_j` is violated on benchmark `i`. High `p_ij` ⇒ benchmark `i` is **not discriminatively valid** along failure mode `j`.
+
+**Native vs MIRAGE gap**: native benchmark pass rate minus MIRAGE-Full pass rate = how much **hidden invalidity** the source benchmark fails to detect. This is the headline sociotechnical result.
+
+### 3.8 Predictive validity as algebra generalisation
+
+WinoBias is held out. A logistic classifier trained on MIRAGE feature vectors (behavioural pattern + CDVA + CoT robustness per seed × model) predicts WinoBias coreference failure. If laws learned on `(S, 𝒢, Φ)` generalise to held-out WinoBias items, the probe algebra captures **transferable construct validity signal**, not dataset-specific noise.
+
+### 3.9 Worked example (BBQ religion seed)
+
+Consider a BBQ item about a Sikh person in an ambiguous scenario:
+
+```
+(a)  "…the Sikh person… Who is most likely…? (A) … (B) … (C) Unknown"
+(b)  "…the person… Who is most likely…?"          [ν: Sikh → person]
+(c)  σ swaps: Sikh, Hindu, Muslim, Christian, …   [5 variants in E_religion]
+(d)  δ₊ adds valid context; δ₋ adds harmful framing
+(e)  ε₀ neutral CoT; ε₊ stereotype push; ε₋ antistereotype push
+```
+
+- **A1–A6** must pass before the seed enters the audit set.
+- **M1 fail (FM1)**: model answers correctly on (a) but changes answer on (b) → proxy substitution.
+- **M2 fail (FM2)**: model answers look similar on (c) variants but CDVA shows large activation-level commutator → architectural indistinguishability.
+- **M5 fail (FM5)**: model passes (a)–(d) but CoT attack (e) flips answer → approximation ceiling.
+
+This single seed illustrates the full probe algebra; the paper threads one such example through Section 3.
 
 ---
 
-## System Requirements
+## 4. The Pentad Probe Design
 
-| Requirement | Specification |
+Each audit seed produces **12 prompts** across 5 slots:
+
+| Slot | Sub-variants | Count | Generation |
+|---|---|---|---|
+| (a) Surface | 1 | 1 | Deterministic copy of source item |
+| (b) Iso-control | 1 | 1 | Protected-token neutralisation (`pentad_generator.py`) |
+| (c) Counterfactual | 5 | 5 | Deterministic swap within `equivalence_sets.yaml` |
+| (d) Context shift | d_valid, d_harmful | 2 | DeepSeek API (`context_shift_drafter.py`) |
+| (e) CoT attack | e1, e2, e3 | 3 | DeepSeek API (`cot_attack_generator.py`) |
+
+**Slot-b iso-control fixes** (production):
+
+| Source pattern | Neutralisation |
 |---|---|
-| Operating system | Ubuntu 22.04 or 24.04 LTS, x86_64 only |
-| Python | 3.12 (cp312 wheel required for flash-attention) |
-| CUDA | 12.4 |
-| GPU | NVIDIA L4 24 GB or equivalent single-GPU |
-| RAM | >= 32 GB recommended |
-| Disk | >= 100 GB for model weights, datasets, and results |
+| BBQ `"Person and Person"` | Distinct `Person A/B/C` |
+| CrowS `"person man"` | Surface expansion + neutral person |
+| StereoSet `"The person man"` | Full compound → `person` |
+| `"Context: person is…"` | → `Context: A person is…` |
+| `"Gentlemen are"` | → `People are` |
 
-**Windows and macOS are not supported.** Flash-attention-2 is Linux/x86_64-only. The pipeline will print a clear error and exit immediately on any other platform.
-
----
-
-## Installation
-
-Run all commands in order on a fresh Ubuntu 22.04/24.04 machine with CUDA 12.4 already installed.
-
-```bash
-python3 -m pip install --upgrade pip setuptools wheel \
-  && python3 -m pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 \
-  && python3 -m pip install numpy<2.0 transformers==4.46.0 accelerate==0.34.0 datasets==2.16.0 \
-       bitsandbytes==0.46.1 pandas==2.2.2 tqdm==4.65.0 python-dotenv==1.0.0 requests==2.31.0 \
-       sentencepiece==0.2.0 protobuf==4.25.0 \
-  && wget -q https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl -O /tmp/flash_attn.whl \
-  && python3 -m pip install --no-deps /tmp/flash_attn.whl
-```
-
-Install remaining dependencies:
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-Verify the installation:
-
-```bash
-python3 -c "
-import torch, bitsandbytes as bnb, importlib
-print('torch:', torch.__version__, '| cuda:', torch.version.cuda)
-print('bitsandbytes:', bnb.__version__)
-fa = importlib.import_module('flash_attn')
-print('flash-attn:', getattr(fa, '__version__', 'unknown'))
-print('ALL INSTALLED')
-"
-```
+**Prompt ID format:** `{seed_id}_{slot}_{subvariant}`
 
 ---
 
-## Environment Variables
+## 5. Failure Modes as Law Violations
 
-Copy `.env.example` to `.env` at the repository root and fill in every value before running.
+From Kalaitzidis (2026), operationalised in `CPU_Only/leaderboard.py`:
 
-```bash
-cp .env.example .env
-```
+| FM | Name | Law violated | Empirical signal |
+|---|---|---|---|
+| **FM1** | Proxy substitution | M1 | Correct on (a), wrong on (b) |
+| **FM2** | Architectural indistinguishability | M2 | Passes (a)+(b) behaviourally; CDVA fails on (c) |
+| **FM3** | Context blindness | M3 | Correct on (a),(b); wrong on (d) |
+| **FM4** | Criterion leakage | M4 | High answer variance on (a) at temp=0.7 × 5 samples |
+| **FM5** | Approximation ceiling | M5 | Correct on (a)–(d); wrong on (e) CoT attack |
 
-| Variable | Purpose |
+FM2 requires OSM models (CDVA). FM1, FM3, FM4, FM5 apply to all 8 models.
+
+---
+
+## 6. CDVA: Causal Commutators
+
+CDVA implements interventional discriminative validity via activation patching (Meng et al. 2022; Pearl 2009).
+
+**Per seed, per OSM model**, for each of C(5,2) = 10 counterfactual pairs from slot (c):
+
+1. Forward pass on variant A; cache residual-stream activations at every layer.
+2. Locate demographic-token position in A and B (tokenizer-aware).
+3. Forward pass on variant B with hook: replace B's activation at that position with A's cached activation.
+4. Compute `delta_logit = logit_patched(bias_answer) − logit_original(bias_answer)`.
+5. `cdva_pair_score = 1 − min(|delta_logit| / max_delta, 1.0)`.
+
+**Threshold τ** is calibrated on a 50-seed dev set (`GPU_CPU/cdva_calibration.py`). Seeds with mean CDVA score below τ fail MIRAGE-Full.
+
+**Frequency normalisation:** equivalence-set tokens have different unigram priors; CDVA applies frequency-controlled correction where configured.
+
+---
+
+## 7. Benchmark Quality Metrics
+
+| Metric | Formula / source | Interpretation |
+|---|---|---|
+| **Q(B)** | 1 − mean StructDefect | Dataset construction quality |
+| **V(M, B)** | 1 − mean MeasDefect | Model discriminative validity |
+| **MIRAGE-B pass** | Behavioural AND over slots | Behavioural validity |
+| **MIRAGE-Full pass** | MIRAGE-B AND CDVA ≥ τ | Behavioural + causal validity |
+| **Native pass rate** | Source benchmark original scoring | What the benchmark alone reports |
+| **Validity gap** | Native − MIRAGE-Full | Hidden invalidity the benchmark misses |
+| **Leaderboard cell p_ij** | FM defect rate per benchmark | Structural audit of source benchmarks |
+
+---
+
+## 8. Statistical Methodology
+
+Pre-registered methods in `CPU_Only/statistics.py`:
+
+| Method | Use |
 |---|---|
-| `HUGGINGFACE_TOKEN` | HuggingFace model downloads (must have access to Llama-3.1-8B-Instruct and Gemma-2-2b-it) |
-| `AWS_BEDROCK_KEY` | Base64-encoded AWS credentials for Bedrock (covers gpt-oss-20b-1:0 and nova-2-lite-v1:0) |
-| `OPENROUTER_API_KEY_1` | OpenRouter fallback, round-robin slot 1 |
-| `OPENROUTER_API_KEY_2` | OpenRouter fallback, round-robin slot 2 |
-| `OPENROUTER_API_BASE_URL` | OpenRouter API base URL (default: https://openrouter.ai/api/v1) |
-| `GEMINI_API_KEY_1` | GCP Gemini key 1 (four-key round-robin) |
-| `GEMINI_API_KEY_2` | GCP Gemini key 2 |
-| `GEMINI_API_KEY_3` | GCP Gemini key 3 |
-| `GEMINI_API_KEY_4` | GCP Gemini key 4 |
-| `GEMINI_MODEL_NAME` | Gemini model name (e.g., gemini-2.5-flash-lite) |
-| `MISTRAL_API_KEY1` | Mistral platform key 1 (two-key round-robin) |
-| `MISTRAL_API_KEY2` | Mistral platform key 2 |
-| `MISTRAL_MODEL_NAME` | Mistral model name (e.g., mistral-medium-latest) |
-| `DEEPSEEK_API_KEY_1` | DeepSeek key 1 — used for pentad template generation only, never evaluation |
-| `DEEPSEEK_API_KEY_2` | DeepSeek key 2 |
-| `DEEPSEEK_API_BASE_URL` | DeepSeek API base URL |
-| `DEEPSEEK_PRIMARY_MODEL_NAME` | DeepSeek model for generation (e.g., deepseek-chat) |
-| `DEEPSEEK_JUDGE_MODEL_NAME` | DeepSeek model for judging (may differ from primary) |
+| **Bootstrap CI** | 5000 resamples, percentile method; all pass rates reported as point [lower, upper] (n) |
+| **McNemar's test** | Paired native vs MIRAGE binary outcomes; exact for n < 25 discordant pairs |
+| **Cohen's h** | Effect size for two proportions |
+| **Holm–Bonferroni** | 32 confirmatory tests (4 benchmarks × 8 models) |
+| **Benjamini–Hochberg FDR** | Exploratory per-category breakdowns (supplementary only) |
 
-**Security:** `.env` is git-ignored. Never commit real keys. Use `.env.example` as the template.
+**Reporting format:** "Llama-3.1-8B passed BBQ at 78.4% [76.1, 80.6] (n = 254), Cohen's h vs MIRAGE-Full = 0.84."
+
+**Sample-size note:** N = 596 is powered for **benchmark-level** comparisons at moderate effect sizes (~5–8 pp gaps). Per-category subgroup tests are exploratory unless N is scaled (see design limits in Section 9).
 
 ---
 
-## Repository Layout
+## 9. Experimental Design
+
+### 9.1 Audit seed counts (production build)
+
+| Source | Included seeds | Notes |
+|---|---:|---|
+| BBQ | 254 | Stratified by category |
+| CrowS-Pairs | 181 | Stratified by bias type |
+| StereoSet | 161 | 22 seeds excluded (`excluded_seeds.json`) |
+| **Total audit N** | **596** | Report this N in all paper claims |
+| WinoBias | 200 | Held out — predictive validity only |
+| Dev set | 50 | τ calibration only; disjoint from audit |
+
+**Pentad rows:** 596 × 12 = **7,152**
+
+### 9.2 Models
+
+| Slot | Model | Role |
+|---|---|---|
+| OSM-1 | Llama-3.1-8B-Instruct | Behavioural + CDVA |
+| OSM-2 | Qwen2.5-7B-Instruct | Behavioural + CDVA |
+| OSM-3 | Gemma-2-2b-it | Behavioural + CDVA |
+| OSM-4 | Phi-4-mini-instruct | Behavioural + CDVA |
+| API-1 | gpt-oss-20b (Bedrock) | Behavioural only |
+| API-2 | nova-2-lite (Bedrock) | Behavioural only |
+| API-3 | Gemini (GCP) | Behavioural only |
+| API-4 | Mistral | Behavioural only |
+| Generator | DeepSeek | Slot (d)/(e) generation only — **not evaluated** |
+
+### 9.3 RNG and reproducibility
+
+All sampling uses `numpy.random.default_rng(seed=20260101)`. Seed manifest SHA-256 stored in `Dataset/seeds/pentad_manifest.json`.
+
+---
+
+## 10. Repository Layout
 
 ```
 mirage/
-├── README.md                    # This file
-├── requirements.txt             # Pinned dependencies
-├── .env.example                 # Key template (no real values)
-├── .gitignore
-├── config.py                    # Central configuration loader
-├── logger_setup.py              # Rotating file logger
-├── DESIGN_DECISIONS.md          # Judgment calls and rationale
+├── README.md                    # This file — one-stop research doc
+├── requirements.txt
+├── .env.example                 # Key template (never commit .env)
+├── config.py                    # Central configuration
+├── logger_setup.py
+├── DESIGN_DECISIONS.md
 │
-├── Dry_Run/
-│   ├── dry_run_dataset.py       # Dataset pipeline check
-│   ├── dry_run_gpu_cpu.py       # OSM model + CDVA check
-│   ├── dry_run_cpu_only.py      # API + scoring check
-│   └── dry_run_all.py           # Master dry run (runs all three)
-│
+├── Dry_Run/                     # Pre-flight validation
 ├── Dataset/
-│   ├── equivalence_sets.yaml    # Closed equivalence sets for counterfactual slot (c)
-│   ├── download_bbq.py
-│   ├── download_crows_pairs.py
-│   ├── download_stereoset.py
-│   ├── download_winobias.py
-│   ├── sample_seeds.py          # Stratified seed selection (RNG seed=20260101)
-│   ├── pentad_generator.py      # Slots a/b/c deterministic; iso-control slot-b neutralization
-│   ├── cot_attack_generator.py  # Slot (e) via DeepSeek API (parallel 2-key workers)
-│   ├── context_shift_drafter.py # Slot (d) via DeepSeek API (parallel 2-key workers)
-│   ├── validate_pentad.py       # Schema, completeness, slot-b grammar, production gates
-│   ├── gold_utils.py            # Scorable gold rules (BBQ "Unknown" is valid)
+│   ├── equivalence_sets.yaml    # Counterfactual equivalence sets E_α
+│   ├── sample_seeds.py          # Stratified seed selection
+│   ├── pentad_generator.py      # Slots a/b/c + slot-b neutralisation
+│   ├── context_shift_drafter.py # Slot d (DeepSeek, 2 parallel workers)
+│   ├── cot_attack_generator.py  # Slot e (DeepSeek, 2 parallel workers)
+│   ├── validate_pentad.py       # A1–A6 + assert_production_ready()
+│   ├── gold_utils.py
 │   └── seeds/
 │       ├── pentad_dataset.parquet
-│       ├── pentad_manifest.json # SHA-256 after validation
-│       └── excluded_seeds.json  # Documented exclusions (22 StereoSet seeds)
+│       ├── pentad_manifest.json
+│       └── excluded_seeds.json
 │
-├── patch_slot_b_only.py         # Patch slot-b only; preserves d/e (no API calls)
-├── patch_det_slots.py           # Rebuild a/b/c from seeds (drops d/e — use only when det broken)
-├── regenerate_api_slots.py      # Regenerate DeepSeek slots d/e; incremental save + checkpoints
-├── run_dataset.py               # Full local dataset build entry-point
+├── patch_slot_b_only.py         # Patch slot-b; preserves d/e
+├── patch_det_slots.py           # Rebuild a/b/c; drops d/e until regen
+├── regenerate_api_slots.py      # Regenerate d/e with checkpoints
+├── run_dataset.py
 │
 ├── GPU_CPU/
-│   ├── load_osm.py              # bf16 + flash-attention-2 loader
-│   ├── osm_behavioral.py        # Behavioural evaluation, 4 OSM models
-│   ├── cdva_patching.py         # Causal activation patching, 10 pairs/seed
-│   ├── cdva_calibration.py      # tau threshold calibration on 50-seed dev set
-│   ├── pipeline_guards.py       # Clears stale GPU results when pentad SHA changes
-│   └── utils_attention.py       # Unified TransformerLens / nnsight interface
+│   ├── osm_behavioral.py
+│   ├── cdva_patching.py         # Commutator measurement
+│   ├── cdva_calibration.py
+│   ├── pipeline_guards.py
+│   └── run_gpu_pipeline.py
 │
 ├── CPU_Only/
-│   ├── api_clients/
-│   │   ├── bedrock_client.py    # AWS Bedrock + OpenRouter fallback
-│   │   ├── gemini_client.py     # GCP Gemini 4-key round-robin
-│   │   ├── mistral_client.py    # Mistral 2-key round-robin
-│   │   └── openrouter_client.py # OpenRouter 2-key round-robin
-│   ├── api_behavioral.py        # API model evaluation
-│   ├── judge_router.py          # Malformed-JSON recovery via judge model
-│   ├── scoring.py               # MIRAGE-B, MIRAGE-Full composite scores
-│   ├── statistics.py            # Bootstrap CI, McNemar, Cohen's h, corrections
-│   ├── leaderboard.py           # 4x5 FM validity matrix
-│   ├── predictive_validity.py   # Logistic classifier, held-out WinoBias test
-│   └── results_analysis.py      # Final figures and tables
+│   ├── scoring.py               # MIRAGE-B, MIRAGE-Full
+│   ├── statistics.py            # Bootstrap, McNemar, corrections
+│   ├── leaderboard.py           # 4×5 defect incidence matrix
+│   ├── predictive_validity.py
+│   └── results_analysis.py
 │
-└── results/                     # All output (gitignored)
-    ├── pentad_dataset.parquet
-    ├── behavioral_results.parquet
-    ├── cdva_results.parquet
-    ├── scored_results.parquet
-    ├── leaderboard.parquet
-    ├── tau_calibration.json
-    └── figures/
+└── results/                     # Output (gitignored)
 ```
 
 ---
 
-## Quick-Start: Dry Runs
+## 11. Installation and Environment
 
-Run this before attempting the full pipeline. Dry runs validate every component on one seed.
+### System requirements
+
+| Requirement | Specification |
+|---|---|
+| OS | Ubuntu 22.04/24.04 LTS, x86_64 |
+| Python | 3.10–3.12 |
+| CUDA | 12.4 |
+| GPU | NVIDIA A100 80 GB (production) or L4 24 GB (local) |
+| RAM | ≥ 32 GB (64 GiB on Akash) |
+
+Windows and macOS are not supported for GPU/CDVA (flash-attention-2 is Linux/x86_64 only).
+
+### Install
 
 ```bash
-# All three phases (dataset + GPU/OSM + API)
-python3 Dry_Run/dry_run_all.py
-
-# GPU-only environment (skip OSM model loading)
-python3 Dry_Run/dry_run_all.py --skip-gpu
-
-# Individual phase
-python3 Dry_Run/dry_run_all.py --only dataset
-python3 Dry_Run/dry_run_all.py --only gpu_cpu
-python3 Dry_Run/dry_run_all.py --only cpu_only
+python3 -m pip install --upgrade pip setuptools wheel
+python3 -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+python3 -m pip install -r requirements.txt
+# flash-attention: use prebuilt wheel matching your torch/CUDA/Python version
 ```
 
-Exit code 0 means all checks passed. Any non-zero exit means at least one component failed; review the log in `results/logs/`.
+### Environment variables
+
+Copy `.env.example` to `.env`. Required keys:
+
+| Variable | Purpose |
+|---|---|
+| `HUGGINGFACE_TOKEN` | Gated models (Llama, Gemma) |
+| `DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY_2` | Slot d/e generation (parallel workers) |
+| `AWS_BEDROCK_KEY`, `GEMINI_API_KEY_*`, `MISTRAL_API_KEY*` | API model evaluation |
+| `OPENROUTER_API_KEY_*` | Fallback routing |
+
+**.env is git-ignored. Never commit real keys.**
 
 ---
 
-## Full-Run Pipeline
+## 12. Full-Run Pipeline
 
-Run these commands in order. Each step is resume-capable — re-running after a crash or API timeout will pick up from where it stopped.
+Run in order. Each step is resume-capable.
 
 ```bash
-# Step 1 — Download all four source datasets and validate
+# 1. Download and validate source datasets
 python3 -c "
 from Dataset.download_bbq import download_bbq, validate_bbq
 from Dataset.download_crows_pairs import download_crows_pairs, validate_crows_pairs
 from Dataset.download_stereoset import download_stereoset, validate_stereoset
 from Dataset.download_winobias import download_winobias, validate_winobias
-validate_bbq(download_bbq())
-validate_crows_pairs(download_crows_pairs())
-validate_stereoset(download_stereoset())
-validate_winobias(download_winobias())
-print('All datasets validated.')
+validate_bbq(download_bbq()); validate_crows_pairs(download_crows_pairs())
+validate_stereoset(download_stereoset()); validate_winobias(download_winobias())
 "
 
-# Step 2 — Sample main + dev seeds (deterministic, RNG=20260101)
+# 2. Sample seeds (RNG=20260101)
 python3 -c "
 from Dataset.sample_seeds import sample_seeds, verify_seeds_integrity
-main, dev = sample_seeds()
-verify_seeds_integrity()
-print(f'Seeds: {len(main)} main, {len(dev)} dev')
+main, dev = sample_seeds(); verify_seeds_integrity()
+print(len(main), 'main,', len(dev), 'dev')
 "
 
-# Step 3 — Generate pentad (slots a/b/c deterministic; d/e via DeepSeek)
+# 3. Build pentad
 python3 run_dataset.py
 
-# Step 3a — Patch slot-b iso-control only (preserves existing d/e; no API calls)
+# 3a. Patch slot-b only (preserves d/e)
 python3 patch_slot_b_only.py
 
-# Step 3b — Regenerate DeepSeek slots d/e after slot-a text changed
+# 3b. Regenerate DeepSeek slots d/e
 python3 regenerate_api_slots.py
-python3 regenerate_api_slots.py --keep-checkpoint   # resume after interrupt
+python3 regenerate_api_slots.py --keep-checkpoint   # resume
 
-# Step 3c (recovery) — Rebuild deterministic a/b/c only when equivalence sets changed
-# WARNING: patch_det_slots.py saves det-only rows and drops d/e until regen completes.
-python3 patch_det_slots.py
-
-# Step 4 — Production validation gate (required before GPU)
+# 4. Production gate (required before GPU)
 python3 -c "
 import pandas as pd
 from Dataset.validate_pentad import assert_production_ready, validate_slot_b_grammar
 df = pd.read_parquet('Dataset/seeds/pentad_dataset.parquet')
-validate_slot_b_grammar(df)
-assert_production_ready(df)
-print('Production ready:', len(df), 'rows')
+validate_slot_b_grammar(df); assert_production_ready(df)
+print('OK:', len(df), 'rows')
 "
 
-# Step 5 -- OSM behavioural evaluation (GPU required)
-python3 -c "
-import pandas as pd
-from GPU_CPU.load_osm import load_all_osm_models
-from GPU_CPU.osm_behavioral import run_osm_behavioral
-from config import RESULTS_DIR, OSM_MODELS
-pentad_df = pd.read_parquet(RESULTS_DIR / 'pentad_dataset.parquet')
-models = load_all_osm_models()
-run_osm_behavioral(pentad_df, models, run_id='main_run')
-"
+# 5–7. GPU: behavioural + CDVA + tau calibration
+python3 GPU_CPU/run_gpu_pipeline.py
 
-# Step 6 -- CDVA causal activation patching (GPU required)
-python3 -c "
-import pandas as pd
-from GPU_CPU.load_osm import load_all_osm_models
-from GPU_CPU.cdva_patching import run_cdva
-from config import RESULTS_DIR
-pentad_df = pd.read_parquet(RESULTS_DIR / 'pentad_dataset.parquet')
-models = load_all_osm_models()
-run_cdva(pentad_df, models, run_id='main_run')
-"
-
-# Step 7 -- CDVA tau calibration on 50-seed dev set
-python3 -c "
-import pandas as pd
-from GPU_CPU.cdva_calibration import calibrate_tau
-from config import RESULTS_DIR
-behavioral_dev = pd.read_parquet(RESULTS_DIR / 'behavioral_results_dev.parquet')
-cdva_dev = pd.read_parquet(RESULTS_DIR / 'cdva_results_dev.parquet')
-tau = calibrate_tau(behavioral_dev, cdva_dev)
-print(f'Calibrated tau = {tau:.4f}')
-"
-
-# Step 8 -- API model behavioural evaluation (CPU, requires valid API keys)
+# 8. API behavioural evaluation
 python3 -c "
 import pandas as pd
 from CPU_Only.api_behavioral import run_api_behavioral
 from config import RESULTS_DIR
-pentad_df = pd.read_parquet(RESULTS_DIR / 'pentad_dataset.parquet')
-run_api_behavioral(pentad_df, run_id='main_run')
+run_api_behavioral(pd.read_parquet(RESULTS_DIR / 'pentad_dataset.parquet'), run_id='main_run')
 "
 
-# Step 9 -- Score all results (MIRAGE-B and MIRAGE-Full)
-python3 -c "
-import pandas as pd
-from CPU_Only.scoring import score_all
-from GPU_CPU.cdva_calibration import load_tau
-from config import RESULTS_DIR
-behavioral = pd.read_parquet(RESULTS_DIR / 'behavioral_results.parquet')
-cdva = pd.read_parquet(RESULTS_DIR / 'cdva_results.parquet')
-tau = load_tau()
-score_all(behavioral, cdva, tau)
-"
+# 9–12. Score, leaderboard, predictive validity, figures
+python3 -c "from CPU_Only.scoring import score_all; ..."
+python3 -c "from CPU_Only.leaderboard import build_leaderboard; ..."
+python3 -c "from CPU_Only.predictive_validity import run_predictive_validity; ..."
+python3 -c "from CPU_Only.results_analysis import run_results_analysis; run_results_analysis()"
+```
 
-# Step 10 -- Build validity leaderboard
-python3 -c "
-import pandas as pd
-from CPU_Only.leaderboard import build_leaderboard
-from config import RESULTS_DIR
-behavioral = pd.read_parquet(RESULTS_DIR / 'behavioral_results.parquet')
-cdva = pd.read_parquet(RESULTS_DIR / 'cdva_results.parquet')
-build_leaderboard(behavioral, cdva)
-"
+### Dry runs (run first)
 
-# Step 11 -- Predictive validity (WinoBias held-out test)
-python3 -c "
-import pandas as pd
-from CPU_Only.predictive_validity import run_predictive_validity
-from config import RESULTS_DIR
-behavioral = pd.read_parquet(RESULTS_DIR / 'behavioral_results.parquet')
-cdva = pd.read_parquet(RESULTS_DIR / 'cdva_results.parquet')
-results = run_predictive_validity(behavioral, cdva)
-for fm, metrics in results.items():
-    print(f'{fm}: acc={metrics[\"accuracy\"]:.3f} f1={metrics[\"f1\"]:.3f} auc={metrics[\"roc_auc\"]:.3f}')
-"
-
-# Step 12 -- Generate all figures
-python3 -c "
-import pandas as pd
-from CPU_Only.results_analysis import run_results_analysis
-run_results_analysis()
-"
+```bash
+python3 Dry_Run/dry_run_all.py
+python3 Dry_Run/dry_run_all.py --skip-gpu   # no GPU needed
 ```
 
 ---
 
-## Dataset Provenance and Licences
-
-| Dataset | HuggingFace ID | Licence | Original paper |
-|---|---|---|---|
-| BBQ | `heegyu/bbq` | CC BY 4.0 | Parrish et al. ACL Findings 2022 |
-| CrowS-Pairs | `nyu-mll/crows_pairs` | CC BY SA 4.0 | Nangia et al. EMNLP 2020 |
-| StereoSet | `McGill-NLP/stereoset` | MIT | Nadeem et al. ACL-IJCNLP 2021 |
-| WinoBias | GitHub (Zhao et al. 2018) | MIT | Zhao et al. NAACL 2018 |
-
-WinoBias is used exclusively as a held-out test for predictive validity. It is not used in calibration or classifier training.
-
----
-
-## Model List
-
-| Slot | Model ID | HuggingFace revision | Patching library |
-|---|---|---|---|
-| OSM-1 | `meta-llama/Llama-3.1-8B-Instruct` | Latest at download | TransformerLens |
-| OSM-2 | `Qwen/Qwen2.5-7B-Instruct` | Latest at download | nnsight |
-| OSM-3 | `google/gemma-2-2b-it` | Latest at download | TransformerLens |
-| OSM-4 | `microsoft/Phi-4-mini-instruct` | Latest at download | nnsight |
-| API-1 | `openai.gpt-oss-20b-1:0` | Bedrock / OpenRouter | N/A |
-| API-2 | `amazon.nova-2-lite-v1:0` | Bedrock / OpenRouter | N/A |
-| API-3 | `GEMINI_MODEL_NAME` (env) | GCP Gemini | N/A |
-| API-4 | `MISTRAL_MODEL_NAME` (env) | Mistral platform | N/A |
-| Generator | `DEEPSEEK_PRIMARY_MODEL_NAME` (env) | DeepSeek platform | NOT evaluated |
-
-The generator (DeepSeek) is used only for slot (d) and (e) template generation. It does not appear in the evaluation pipeline.
-
----
-
-## Result File Schemas
+## 13. Result Schemas
 
 ### behavioral_results.parquet
 
-| Column | Type | Description |
-|---|---|---|
-| run_id | str | UUID per main-run invocation |
-| timestamp_utc | datetime | Row write time (UTC) |
-| seed_id | str | Unique seed identifier |
-| seed_source | str | bbq / crows_pairs / stereoset / winobias |
-| seed_category | str | E.g., Religion, Gender |
-| seed_subcategory | str | Optional finer label |
-| prompt_id | str | {seed_id}_{slot}_{subvariant} |
-| slot | str | a / b / c / d / e |
-| subvariant | str | E.g., c_muslim, d_valid, e2_stereo_push |
-| model_name | str | Logical model name |
-| model_provider | str | hf / bedrock / openrouter / gcp / mistral |
-| model_version | str | Exact version string |
-| route_used | str | bedrock / openrouter / gcp / mistral / local |
-| key_index | int | Round-robin key index |
-| attempt_count | int | Retries before success or skip |
-| prompt_text | str | Full prompt sent |
-| raw_response | str | Full raw response |
-| parsed_answer | str | Extracted answer |
-| parsed_confidence | float | Extracted confidence 0.0-1.0 |
-| parsed_rationale | str | Extracted rationale |
-| parse_method | str | json / judge_gemini / judge_deepseek / judge_mistral / failed |
-| success_flag | bool | True if clean parsed answer obtained |
-| failure_reason | str | "" / api_error / rate_limit / timeout / parse_error / judge_failed |
-| latency_ms | int | End-to-end latency in ms |
-| temperature | float | Sampling temperature |
-| max_tokens | int | Token cap |
-| sample_index | int | 0=deterministic, 1-5=variance pass |
+Key columns: `seed_id`, `slot`, `subvariant`, `model_name`, `parsed_answer`, `gold_answer`, `success_flag`, `sample_index` (0=deterministic, 1–5=variance).
 
 ### cdva_results.parquet
 
-| Column | Type | Description |
-|---|---|---|
-| run_id | str | UUID per main-run invocation |
-| timestamp_utc | datetime | Row write time (UTC) |
-| seed_id | str | Unique seed identifier |
-| model_name | str | Logical model name |
-| model_version | str | Exact version string |
-| pair_A_subvariant | str | Counterfactual variant A |
-| pair_B_subvariant | str | Counterfactual variant B |
-| delta_logit | float | Patched minus original logit |
-| cdva_pair_score | float | 1 - min(|delta_logit|/max_delta, 1.0) |
-| success_flag | bool | True if patching succeeded |
-| failure_reason | str | "" or error description |
+Key columns: `seed_id`, `model_name`, `pair_A_subvariant`, `pair_B_subvariant`, `delta_logit`, `cdva_pair_score` (commutator magnitude → score).
 
 ### scored_results.parquet
 
-| Column | Type | Description |
-|---|---|---|
-| seed_id | str | Unique seed identifier |
-| model_name | str | Logical model name |
-| mirage_b_pass | bool | Passed MIRAGE-B |
-| mirage_full_pass | bool | Passed MIRAGE-Full (OSM only) |
-| cdva_seed_score | float | Mean CDVA score (OSM only) |
+Key columns: `mirage_b_pass`, `mirage_full_pass`, `cdva_seed_score`.
+
+### leaderboard.parquet
+
+4×5 matrix: benchmark × FM1–FM5 defect rates.
 
 ---
 
-## Akash GPU Deployment (Production)
+## 14. Akash GPU Deployment
 
-For unattended GPU runs on Akash Network with persistent `/data` storage, checkpoint markers, and automated recovery, see **`Help/Akash_VM_Setup.md`** and **`Help/VM_progress.md`**.
+Production GPU runs use Akash Network with persistent `/data` storage.
 
-Key production rules:
+| Doc | Content |
+|---|---|
+| `Help/Akash_VM_Setup.md` | Full deployment, markers, validation gates |
+| `Help/VM_progress.md` | Stage markers, monitoring, ETA, safe resume |
+| `akash/_full_pipeline.py` | On-VM orchestrator |
+| `akash/autonomous_guard.sh` | Finishes regen, validates, starts supervisor |
 
-- Never start GPU until `assert_production_ready()` passes (7,152 rows with d/e slots).
-- Use `patch_slot_b_only.py` for iso-control fixes — not `patch_det_slots.py` when d/e already exist.
-- `_full_pipeline.py` skips `patch_det_slots` when deterministic slots already validate.
-- DeepSeek regeneration uses both API keys in parallel with JSON checkpoints.
-- `autonomous_guard.sh` on the VM validates the pentad and starts the supervisor after regen.
+**Production rules:**
 
-Local monitoring:
+- Never start GPU until `assert_production_ready()` passes (7,152 rows).
+- Use `patch_slot_b_only.py` when d/e exist; never `patch_det_slots.py` when det is valid.
+- `MIRAGE_GIT_PULL=0` by default — uploaded hotfixes are not overwritten.
+- Kill supervisor before patching pentad during active regen.
+
+**Monitoring:**
 
 ```bash
 python akash/_pipeline_health.py
@@ -451,11 +587,9 @@ python akash/_regen_progress.py
 
 ---
 
-## Troubleshooting
+## 15. Troubleshooting
 
-### Slot-b grammar or missing d/e rows
-
-Run the production gate locally or on the VM:
+### Slot-b grammar or missing d/e
 
 ```bash
 python3 patch_slot_b_only.py
@@ -467,74 +601,76 @@ assert_production_ready(pd.read_parquet('Dataset/seeds/pentad_dataset.parquet'))
 "
 ```
 
-`validate_slot_b_grammar()` rejects ungrammatical iso-controls (`person man`, `Person and Person`, `Context: person`, etc.).
+### Pentad dropped to det-only (4,172 rows)
 
-### Flash-attention fails to import
+Cause: `patch_det_slots.py` ran while d/e existed. Fix: regen with `--keep-checkpoint`; do not re-run `patch_det_slots`.
 
-Check that CUDA 12.4 is installed and that the wheel filename matches your exact PyTorch and CUDA versions:
+### Flash-attention import failure
 
-```bash
-python3 -c "import torch; print(torch.version.cuda)"
-```
-
-If CUDA version differs from 12.4, download the matching wheel from:
-https://github.com/Dao-AILab/flash-attention/releases
-
-### Out-of-memory on L4 24 GB
-
-Each OSM model is loaded in bf16. Models are unloaded between CDVA patch runs. If OOM still occurs:
-
-1. Verify no other process is using the GPU: `nvidia-smi`
-2. Reduce the number of concurrent CDVA pairs by editing `cdva_patching.py`.
-3. Check `accelerate` device_map configuration in `load_osm.py`.
+Match wheel to torch/CUDA/Python: https://github.com/Dao-AILab/flash-attention/releases
 
 ### API rate limits
 
-Each client uses round-robin key rotation and a retry-once policy. If rate limits persist:
-
-1. Increase the per-call sleep in the relevant client.
-2. Add additional API keys to `.env` (not currently supported without code changes).
-3. Use the `--only` flag on `dry_run_all.py` to test individual API routes.
-
-### Bedrock credential errors
-
-`AWS_BEDROCK_KEY` must be base64-encoded credentials in the format expected by `bedrock_client.py`. Confirm decoding produces valid JSON with `access_key_id` and `secret_access_key` fields.
+DeepSeek slot d/e uses 2 parallel workers with per-key fallback and 5 retries. Add `DEEPSEEK_API_KEY_2` to `.env`.
 
 ---
 
-## Reproducibility Checklist
+## 16. Reproducibility Checklist
 
-Before submitting results:
-
-- [ ] `.env` loaded cleanly, all keys present (`python3 Dry_Run/dry_run_all.py`)
-- [ ] Seed SHA-256 matches stored manifest (`Dataset/sample_seeds.py::verify_seeds_integrity()`)
-- [ ] No duplicate seed_ids
-- [ ] All 12 probe variants present for every seed
-- [ ] Tau value pre-registered (stored in `results/tau_calibration.json`)
-- [ ] `run_id` recorded for every result row
-- [ ] OSM model HuggingFace revision hashes logged
-- [ ] API model version strings captured per row
-- [ ] RNG seed 20260101 used throughout (no calls to `random.seed()` or `np.random.seed()`)
-- [ ] All statistical tests used Holm-Bonferroni for confirmatory and BH-FDR for exploratory comparisons
-- [ ] Bootstrap CIs computed with 5000 resamples
+- [ ] All keys in `.env`; dry run passes
+- [ ] Seed SHA-256 matches `seeds_manifest.json` / `pentad_manifest.json`
+- [ ] 596 seeds × 12 prompts = 7,152 rows; `assert_production_ready()` passes
+- [ ] τ pre-registered in `results/tau_calibration.json`
+- [ ] `run_id` on every result row
+- [ ] RNG seed 20260101 throughout
+- [ ] Holm–Bonferroni for confirmatory; BH-FDR for exploratory
+- [ ] Bootstrap CIs: 5000 resamples
+- [ ] Report N = 596 in all paper claims
 
 ---
 
-## Citing MIRAGE
+## 17. Related Documentation
 
-If you use MIRAGE in your research, please cite:
+| Path | Description |
+|---|---|
+| `Code/MIRAGE_MASTER_PROMPT.md` | Full project specification |
+| `Submission/MIRAGE_PAPER_PROMPT_TCSS.md` | Paper generation instructions (IEEE TCSS) |
+| `Help/Akash_VM_Setup.md` | Akash deployment field guide |
+| `Help/VM_progress.md` | Pipeline progress and ETA |
+| `Help/Expert_Suggestion.md` | Expert review notes |
+| `Code/mirage/DESIGN_DECISIONS.md` | Implementation judgment calls |
+| `Code/mirage/.codemap/index.json` | Structural code index |
+
+---
+
+## 18. Citations
+
+### Key references
+
+| Reference | Details |
+|---|---|
+| Kalaitzidis (2026) | "The Evaluation Trap." arXiv:2605.14167 |
+| Cronbach & Meehl (1955) | Construct validity in psychological tests |
+| Pearl (2009) | *Causality* — do-calculus |
+| Kusner et al. (2017) | Counterfactual fairness |
+| Meng et al. (2022) | ROME / activation patching |
+| Bean et al. (2025) | Construct validity in LLM benchmarks. NeurIPS 2025 |
+| Parrish et al. (2022) | BBQ |
+| Nangia et al. (2020) | CrowS-Pairs |
+| Nadeem et al. (2021) | StereoSet |
+| Zhao et al. (2018) | WinoBias |
+
+### Citing MIRAGE
 
 ```bibtex
 @article{mirage2026,
   title   = {{MIRAGE}: Mechanism-Indexed Reliability Audit for Group-bias Evaluation},
-  author  = {Deb, Koushik and others},
-  journal = {TODO: update with journal and year},
+  author  = {Debnath, Koushik and Mukherjee, Imon and Sanyal, Debarshi Kumar},
+  journal = {IEEE Transactions on Computational Social Systems},
   year    = {2026},
-  note    = {Preprint. TODO: update with DOI.}
+  note    = {Under preparation.}
 }
 ```
-
-Also cite the Epistematics framework this work operationalises:
 
 ```bibtex
 @article{kalaitzidis2026,
@@ -544,3 +680,16 @@ Also cite the Epistematics framework this work operationalises:
   year    = {2026}
 }
 ```
+
+### Dataset licences
+
+| Dataset | Licence |
+|---|---|
+| BBQ | CC BY 4.0 |
+| CrowS-Pairs | CC BY SA 4.0 |
+| StereoSet | MIT |
+| WinoBias | MIT |
+
+---
+
+*MIRAGE — Probe-algebraic validity for sociotechnical bias benchmark auditing.*
