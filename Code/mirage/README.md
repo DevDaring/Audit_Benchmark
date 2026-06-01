@@ -27,8 +27,9 @@ MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It 
 14. [Akash GPU Deployment](#14-akash-gpu-deployment)
 15. [Troubleshooting](#15-troubleshooting)
 16. [Reproducibility Checklist](#16-reproducibility-checklist)
-17. [Related Documentation](#17-related-documentation)
-18. [Citations](#18-citations)
+17. [Community Resources & Public Artifacts](#17-community-resources--public-artifacts)
+18. [Related Documentation](#18-related-documentation)
+19. [Citations](#19-citations)
 
 ---
 
@@ -42,7 +43,7 @@ Bean et al. (2025) show construct-validity failures at scale. Their approach is 
 
 ### 1.2 Core contributions
 
-1. **Probe-Algebraic Validity (PAV)** — A formal framework that represents benchmark items as composable probe transformations with explicit invariance laws, and scores quality by structural and measurement defect rates (Section 3).
+1. **Probe-Algebraic Validity (PAV)** — Formal framework with explicit invariance laws; includes minimal validator (`pav_validate.py`), defect glossary (Section 17.2), and public gap leaderboard (Section 17.3).
 2. **The Pentad probe** — Five slots (a–e), twelve prompts per seed, that instantiate the probe algebra on BBQ, CrowS-Pairs, and StereoSet.
 3. **CDVA (Causal Discriminative Validity Audit)** — Activation patching tests whether model responses **commute** with counterfactual demographic swaps (Section 6).
 4. **Validity leaderboard** — A 4×5 matrix (benchmark × failure mode) quantifying where source benchmarks fail discriminative validity.
@@ -285,15 +286,15 @@ Each audit seed produces **12 prompts** across 5 slots:
 
 ## 5. Failure Modes as Law Violations
 
-From Kalaitzidis (2026), operationalised in `CPU_Only/leaderboard.py`:
+Kalaitzidis (2026) defines five failure modes. MIRAGE maps each to a **measurement law** `M_j` and a **probe defect type**. Full glossary with slots, axioms, and commutators: **Section 17.2**.
 
-| FM | Name | Law violated | Empirical signal |
-|---|---|---|---|
-| **FM1** | Proxy substitution | M1 | Correct on (a), wrong on (b) |
-| **FM2** | Architectural indistinguishability | M2 | Passes (a)+(b) behaviourally; CDVA fails on (c) |
-| **FM3** | Context blindness | M3 | Correct on (a),(b); wrong on (d) |
-| **FM4** | Criterion leakage | M4 | High answer variance on (a) at temp=0.7 × 5 samples |
-| **FM5** | Approximation ceiling | M5 | Correct on (a)–(d); wrong on (e) CoT attack |
+| FM | Name | Law | Slot(s) | Requires GPU |
+|---|---|---|---|---|
+| **FM1** | Proxy substitution | M1 | (a), (b) | No |
+| **FM2** | Architectural indistinguishability | M2 | (c) + CDVA | Yes (OSM) |
+| **FM3** | Context blindness | M3 | (d) | No |
+| **FM4** | Criterion leakage | M4 | (a) variance | No |
+| **FM5** | Approximation ceiling | M5 | (e) | No |
 
 FM2 requires OSM models (CDVA). FM1, FM3, FM4, FM5 apply to all 8 models.
 
@@ -412,6 +413,7 @@ mirage/
 ├── patch_slot_b_only.py         # Patch slot-b; preserves d/e
 ├── patch_det_slots.py           # Rebuild a/b/c; drops d/e until regen
 ├── regenerate_api_slots.py      # Regenerate d/e with checkpoints
+├── pav_validate.py              # Minimal PAV validator (A1–A6, no GPU)
 ├── run_dataset.py
 │
 ├── GPU_CPU/
@@ -425,6 +427,7 @@ mirage/
 │   ├── scoring.py               # MIRAGE-B, MIRAGE-Full
 │   ├── statistics.py            # Bootstrap, McNemar, corrections
 │   ├── leaderboard.py           # 4×5 defect incidence matrix
+│   ├── validity_gap_table.py    # Native vs MIRAGE-Full gap (public table)
 │   ├── predictive_validity.py
 │   └── results_analysis.py
 │
@@ -629,7 +632,157 @@ DeepSeek slot d/e uses 2 parallel workers with per-key fallback and 5 retries. A
 
 ---
 
-## 17. Related Documentation
+## 17. Community Resources & Public Artifacts
+
+Three lightweight resources for adopting PAV without running the full GPU pipeline.
+
+### 17.1 Minimal PAV validator (structural axioms only, no GPU)
+
+**Script:** `pav_validate.py`
+
+Validates **benchmark construction quality** `Q(B)` using structural axioms **A1–A6** only. No model inference, no GPU, no API keys (unless you also run d/e generation separately).
+
+| Axiom | What it checks | Implementation |
+|---|---|---|
+| **A1** | Gold coherence: `gold(ν(s)) = gold(s)` | Per-seed gold match on slots a/b |
+| **A2** | Swap coherence: 5 distinct slot-c texts | `validate_c_variants_distinct()` |
+| **A3** | Probe closure: d/e embed slot-a text | `validate_deepseek_embeds_slot_a()` |
+| **A4** | Iso legibility: slot-b ≠ slot-a | `validate_b_differs_from_a()` |
+| **A5** | Completeness: 12 prompts per seed | `validate_completeness()` |
+| **A6** | Slot-b grammar | `validate_slot_b_grammar()` |
+
+**Usage:**
+
+```bash
+# Full pentad (requires d/e slots for A3)
+python3 pav_validate.py
+
+# Custom path
+python3 pav_validate.py --path Dataset/seeds/pentad_dataset.parquet
+
+# Deterministic slots only (skip A3 while regen is pending)
+python3 pav_validate.py --det-only
+```
+
+**Output:**
+
+```
+=== PAV Structural Validation (A1–A6) ===
+Audit seeds: 596
+Q(B) construction quality: 0.963
+```
+
+- Exit code **0** = all axioms pass for included seeds.
+- Exit code **1** = defects listed by axiom (seed IDs + messages).
+- `Q(B) = 1 − (seeds_with_any_structural_defect / n_audit_seeds)`.
+
+Use this to audit **any** pentad-shaped benchmark export before committing GPU time. For the full production gate (includes d/e row counts and manifest), use `assert_production_ready()` in `Dataset/validate_pentad.py`.
+
+---
+
+### 17.2 Defect-type glossary (FM1–FM5 ↔ law violations)
+
+Complete mapping from Kalaitzidis failure modes to probe-algebraic laws, slots, and measurable signals.
+
+#### Structural defects (benchmark construction — axioms A1–A6)
+
+| ID | Name | Law | Generator | Defect signal | Fix |
+|---|---|---|---|---|---|
+| **A1** | Gold incoherence | `gold(ν(s)) ≠ gold(s)` | ν (slot b) | Slot-a and slot-b gold differ | Rebuild slot-b; check `gold_utils.py` |
+| **A2** | Degenerate swap | Slot-c variants not distinct | σ (slot c) | 5 identical slot-c texts | Fix equivalence routing in `pentad_generator.py` |
+| **A3** | Probe non-closure | d/e missing slot-a embed | δ, ε (slots d/e) | DeepSeek prompt omits surface text | Regenerate d/e; clear stale checkpoints |
+| **A4** | Invisible iso-control | `ν(s) = s` | ν (slot b) | Slot-b identical to slot-a | Run `patch_slot_b_only.py` |
+| **A5** | Incomplete pentad | ≠ 12 prompts per seed | all | Missing slot/subvariant rows | Re-run `run_dataset.py` or patch scripts |
+| **A6** | Ungrammatical iso-control | ν(s) not valid English | ν (slot b) | `person man`, `Context: person`, etc. | Run `patch_slot_b_only.py`; check grammar validator |
+
+#### Measurement defects (model discriminative validity — laws M1–M5)
+
+| FM | Kalaitzidis name | Law | Probe slots | Formal defect condition | Empirical test | Commutator / statistic |
+|---|---|---|---|---|---|---|
+| **FM1** | Proxy substitution | **M1** Iso-invariance | (a), (b) | `correct(M,s)` ∧ ¬`correct(M,ν(s))` | Correct on surface, wrong on iso-control | Behavioral only |
+| **FM2** | Architectural indistinguishability | **M2** Causal swap invariance | (c) + CDVA | `correct(M,s)` ∧ `correct(M,ν(s))` ∧ CDVA fail on σ pairs | Behavioral pass on a/b; mean CDVA score < τ | **Commutator** `|M(σ_j(s)) − patch(M,σ_i,σ_j)|` |
+| **FM3** | Context blindness | **M3** Context stability | (a), (b), (d) | `correct(M,s)` ∧ `correct(M,ν(s))` ∧ ¬`correct(M,δ₊(s))` | Wrong on d_valid despite a/b correct | Behavioral only |
+| **FM4** | Criterion leakage | **M4** Low leakage | (a) variance | >1 distinct answer on slot-a at temp=0.7 × 5 samples | Unstable surface answer | Variance pass (sample_index 1–5) |
+| **FM5** | Approximation ceiling | **M5** CoT robustness | (a)–(d), (e) | `correct(M,s..δ)` ∧ ¬`correct(M,ε₀(s))` | Wrong under CoT attack after passing a–d | Behavioral only |
+
+#### Cross-reference: generators → laws → failure modes
+
+```
+Generator   Slot   Structural axiom   Measurement law   Failure mode
+─────────────────────────────────────────────────────────────────
+id          (a)    —                  (baseline)        —
+ν           (b)    A1, A4, A6         M1                FM1
+σ_α         (c)    A2                 M2                FM2 (+ CDVA commutator)
+δ₊, δ₋      (d)    A3, A5             M3                FM3
+ε₀, ε₊, ε₋  (e)    A3, A5             M5                FM5
+temp>0      (a)    —                  M4                FM4
+```
+
+#### Leaderboard cell interpretation
+
+| Output | Meaning |
+|---|---|
+| `leaderboard.parquet` cell `FM_j` | Mean defect rate for failure mode j on that benchmark |
+| High FM1 on BBQ | Source items allow proxy substitution undetected by native scoring |
+| High FM2 on StereoSet | Models behave fairly on surface but not causally on swaps |
+| `validity_gap` (Section 17.3) | Native pass − MIRAGE-Full pass = hidden invalidity |
+
+---
+
+### 17.3 Public validity-gap leaderboard (native vs MIRAGE per benchmark)
+
+**Script:** `CPU_Only/validity_gap_table.py`
+
+After the main pipeline completes scoring, this builds a **public markdown table** comparing what each source benchmark alone would report vs what MIRAGE-Full requires.
+
+| Column | Definition |
+|---|---|
+| **Native pass rate** | Fraction of seeds where model is **correct on slot-(a) only** (surface prompt — what BBQ/CrowS/StereoSet natively test) |
+| **MIRAGE-Full pass rate** | Fraction of seeds passing **behavioural + CDVA** (`mirage_full_pass` in `scored_results.parquet`) |
+| **Validity gap** | `native − MIRAGE-Full` — hidden invalidity the source benchmark fails to detect |
+
+**Generate (after Steps 9–10 in Section 12):**
+
+```bash
+python3 -m CPU_Only.validity_gap_table
+```
+
+**Outputs (committed or published alongside paper artifacts):**
+
+| File | Description |
+|---|---|
+| `results/validity_gap_leaderboard.md` | Public markdown table for README / paper / GitHub |
+| `results/validity_gap_leaderboard.parquet` | Machine-readable gap table |
+
+**Example table** (illustrative structure — values filled after main run):
+
+| Benchmark | N seeds | Native pass | MIRAGE-Full pass | Validity gap |
+|---|---:|---:|---:|---:|
+| BBQ | 254 | —% | —% | **—%** |
+| CrowS-Pairs | 181 | —% | —% | **—%** |
+| StereoSet | 161 | —% | —% | **—%** |
+
+Macro-average gap across models per benchmark is the headline sociotechnical metric: **how much certification confidence is inflated** when auditors rely on native benchmark pass rates alone.
+
+**Also build the 4×5 failure-mode matrix:**
+
+```bash
+python3 -c "
+import pandas as pd
+from CPU_Only.leaderboard import build_leaderboard
+from config import RESULTS_DIR
+build_leaderboard(
+    pd.read_parquet(RESULTS_DIR / 'behavioral_results.parquet'),
+    pd.read_parquet(RESULTS_DIR / 'cdva_results.parquet'),
+)
+"
+```
+
+Together, `leaderboard.parquet` (which FM dominates per benchmark) and `validity_gap_leaderboard.md` (how much native scoring overstates validity) form the **public audit dashboard** for the research community.
+
+---
+
+## 18. Related Documentation
 
 | Path | Description |
 |---|---|
@@ -643,7 +796,7 @@ DeepSeek slot d/e uses 2 parallel workers with per-key fallback and 5 retries. A
 
 ---
 
-## 18. Citations
+## 19. Citations
 
 ### Key references
 
