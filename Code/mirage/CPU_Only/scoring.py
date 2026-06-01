@@ -30,7 +30,9 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import RESULTS_DIR, ensure_dirs
+from Dataset.category_utils import normalize_seed_category
 from Dataset.gold_utils import is_scorable_gold
+from results_utils import dedup_behavioral
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +184,10 @@ def score_all(
                  seed_source, seed_category
     """
     ensure_dirs()
+    behavioral_df = dedup_behavioral(behavioral_df)
+    if cdva_df is not None and len(cdva_df) > 0:
+        from results_utils import dedup_cdva
+        cdva_df = dedup_cdva(cdva_df)
 
     seed_ids = behavioral_df["seed_id"].unique().tolist()
     model_names = behavioral_df["model_name"].unique().tolist()
@@ -200,6 +206,9 @@ def score_all(
                     "seed_id": seed_id,
                     "seed_source": seed_meta.get("seed_source", ""),
                     "seed_category": seed_meta.get("seed_category", ""),
+                    "seed_category_norm": normalize_seed_category(
+                        str(seed_meta.get("seed_category", ""))
+                    ),
                     "model_name": model_name,
                     "mirage_b_pass": b_pass,
                     "mirage_full_pass": f_pass,

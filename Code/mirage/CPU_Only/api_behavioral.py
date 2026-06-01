@@ -33,6 +33,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import API_MODELS, RESULTS_DIR, RESEARCH_SYSTEM_PROMPT, ensure_dirs
+from parse_utils import parse_model_response, repair_json
+from results_utils import dedup_behavioral, reparse_failed_rows
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +47,22 @@ _FM4_N_SAMPLES = 5
 _FM4_TEMPERATURE = 0.7
 
 
-def _repair_json(raw: str) -> dict | None:
-    raw = raw.strip()
-    if raw.startswith("{") and not raw.endswith("}"):
-        raw = raw + "}"
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+def _parse_response(raw: str, prompt_id: str) -> tuple[dict | None, str]:
+    """Parse raw response; try shared parser, then judge fallback."""
+    if not raw:
+        return None, "failed"
+
+    success, answer, conf, rationale, method, reason = parse_model_response(raw)
+    if success:
+        return {"answer": answer, "confidence": conf, "rationale": rationale}, method
+
+    repaired = repair_json(raw)
+    if repaired is not None and str(repaired.get("answer", "")).strip():
+        return repaired, "json"
+
+    from CPU_Only.judge_router import judge
+    parsed, method = judge(raw, provider="gemini")
+    return parsed, method
 
 
 def _build_messages(prompt_text: str) -> list[dict]:
@@ -83,25 +93,6 @@ def _call_api_model(
         return call_mistral_with_roundrobin(messages, max_tokens, temperature=temperature)
     else:
         raise ValueError(f"Unknown primary_route: '{primary}'")
-
-
-def _parse_response(raw: str, prompt_id: str) -> tuple[dict | None, str]:
-    """Parse raw response; try deterministic repair; route to judge if needed."""
-    if not raw:
-        return None, "failed"
-
-    try:
-        return json.loads(raw), "json"
-    except json.JSONDecodeError:
-        pass
-
-    repaired = _repair_json(raw)
-    if repaired is not None:
-        return repaired, "json"
-
-    from CPU_Only.judge_router import judge
-    parsed, method = judge(raw, provider="gemini")
-    return parsed, method
 
 
 def _evaluate_single_prompt(
@@ -270,8 +261,10 @@ def run_api_behavioral(
     ensure_dirs()
 
     if _BEHAVIORAL_PATH.exists():
-        existing = pd.read_parquet(_BEHAVIORAL_PATH)
-        logger.info("Loaded %d existing results for resume.", len(existing))
+        existing = dedup_behavioral(reparse_failed_rows(pd.read_parquet(_BEHAVIORAL_PATH)))
+        if len(existing) > 0:
+            existing.to_parquet(_BEHAVIORAL_PATH, index=False)
+        logger.info("Loaded %d existing results for resume (deduped).", len(existing))
     else:
         existing = pd.DataFrame()
 
@@ -280,7 +273,7 @@ def run_api_behavioral(
         for _, row in existing[existing["success_flag"] == True].iterrows():  # noqa: E712
             completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
 
-    all_rows: list[pd.DataFrame] = [existing] if len(existing) > 0 else []
+    working = existing
 
     for model_cfg in API_MODELS:
         model_name = model_cfg["name"]
@@ -292,9 +285,11 @@ def run_api_behavioral(
             max_tokens=max_tokens, sample_index=0, temperature=0.0,
         )
         if len(result_df) > 0:
-            all_rows.append(result_df)
-            combined = pd.concat(all_rows, ignore_index=True)
-            combined.to_parquet(_BEHAVIORAL_PATH, index=False)
+            working = pd.concat([working, result_df], ignore_index=True)
+            working = dedup_behavioral(working)
+            working.to_parquet(_BEHAVIORAL_PATH, index=False)
+            for _, row in result_df[result_df["success_flag"] == True].iterrows():  # noqa: E712
+                completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
             logger.info("  Saved %d new rows for %s (deterministic pass).", len(result_df), model_name)
 
         # Pass 2: stochastic FM4 variance (slot-a only, 5 samples at temp=0.7)
@@ -308,29 +303,18 @@ def run_api_behavioral(
                 temperature=_FM4_TEMPERATURE,
             )
             if len(var_df) > 0:
-                all_rows.append(var_df)
-                combined = pd.concat(all_rows, ignore_index=True)
-                combined.to_parquet(_BEHAVIORAL_PATH, index=False)
+                working = pd.concat([working, var_df], ignore_index=True)
+                working = dedup_behavioral(working)
+                working.to_parquet(_BEHAVIORAL_PATH, index=False)
+                for _, row in var_df[var_df["success_flag"] == True].iterrows():  # noqa: E712
+                    completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
                 logger.info(
                     "    Saved %d rows for %s (sample_index=%d).",
                     len(var_df), model_name, sample_idx,
                 )
 
-    final = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
+    final = dedup_behavioral(working) if len(working) > 0 else pd.DataFrame()
     if len(final) > 0:
-        final = (
-            final.sort_values("timestamp_utc")
-            .drop_duplicates(subset=["prompt_id", "model_name", "sample_index"], keep="last")
-            .reset_index(drop=True)
-        )
-
-        dupes = final[final.duplicated(subset=["prompt_id", "model_name", "sample_index"], keep=False)]
-        if len(dupes) > 0:
-            raise RuntimeError(
-                f"Duplicate (prompt_id, model_name, sample_index) triples found: {len(dupes)} rows. "
-                "Investigation required."
-            )
-
         final.to_parquet(_BEHAVIORAL_PATH, index=False)
 
     logger.info("API behavioral evaluation complete. Total rows: %d", len(final))

@@ -40,6 +40,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
 from GPU_CPU.utils_attention import _get_token_position, patch_activation
+from results_utils import dedup_cdva
 
 logger = logging.getLogger(__name__)
 
@@ -72,22 +73,24 @@ def _cdva_pair_score(delta_logit: float) -> float:
 
 def _get_bias_answer(c_variants: pd.DataFrame) -> str:
     """
-    Determine the bias_answer token for this seed from the gold_answer
-    column.  Falls back through several heuristics so the code never
-    produces a nonsensical token like "Yes".
+    Token whose logit delta is measured during CDVA patching.
 
-    Priority order:
-    1. gold_answer stored in the first c-variant row (set during pentad gen).
-    2. First non-empty word of gold_answer (single-token prefix).
-    3. Empty string → patching will still run but delta_logit is a raw value.
+    Priority:
+    1. First word of gold_answer (when not BBQ-style Unknown).
+    2. swap_token from slot-c (demographic token under test).
     """
     if "gold_answer" in c_variants.columns:
         gold_vals = c_variants["gold_answer"].dropna().unique()
         if len(gold_vals) > 0:
             gold = str(gold_vals[0]).strip()
             if gold and gold.lower() != "unknown":
-                # Use first word/token of the gold answer
                 return gold.split()[0] if gold.split() else gold
+
+    if "swap_token" in c_variants.columns:
+        for tok in c_variants["swap_token"].dropna().astype(str):
+            tok = tok.strip()
+            if tok and tok.lower() not in {"none", "nan", ""}:
+                return tok.split()[0] if tok.split() else tok
     return ""
 
 
@@ -245,8 +248,10 @@ def run_cdva(
     ensure_dirs()
 
     if _CDVA_PATH.exists():
-        existing = pd.read_parquet(_CDVA_PATH)
-        logger.info("Loaded %d existing CDVA results.", len(existing))
+        existing = dedup_cdva(pd.read_parquet(_CDVA_PATH))
+        if len(existing) > 0:
+            existing.to_parquet(_CDVA_PATH, index=False)
+        logger.info("Loaded %d existing CDVA results (deduped).", len(existing))
     else:
         existing = pd.DataFrame()
 
@@ -343,14 +348,7 @@ def run_cdva(
 
     final = pd.DataFrame(all_rows)
     if len(final) > 0:
-        final = (
-            final.sort_values("timestamp_utc")
-            .drop_duplicates(
-                subset=["seed_id", "model_name", "pair_A_subvariant", "pair_B_subvariant"],
-                keep="last",
-            )
-            .reset_index(drop=True)
-        )
+        final = dedup_cdva(final)
         final.to_parquet(_CDVA_PATH, index=False)
 
     # Report coverage

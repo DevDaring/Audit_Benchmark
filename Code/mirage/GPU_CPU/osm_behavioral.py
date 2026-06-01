@@ -33,6 +33,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, RESEARCH_SYSTEM_PROMPT, ensure_dirs
+from parse_utils import parse_model_response
+from results_utils import dedup_behavioral, reparse_failed_rows
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +57,20 @@ _JSON_SCHEMA = {
 _SYSTEM_PROMPT = RESEARCH_SYSTEM_PROMPT
 
 
-def _repair_json(raw: str) -> dict | None:
-    """Attempt deterministic repair of a near-valid JSON string."""
-    raw = raw.strip()
-    if raw.startswith("{") and not raw.endswith("}"):
-        raw = raw + "}"
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+def _save_behavioral(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate (prefer success) and write behavioral_results.parquet."""
+    clean = dedup_behavioral(df)
+    clean.to_parquet(_BEHAVIORAL_PATH, index=False)
+    return clean
+
+
+def _completed_keys_from(df: pd.DataFrame) -> set[tuple]:
+    keys: set[tuple] = set()
+    if len(df) == 0 or "success_flag" not in df.columns:
+        return keys
+    for _, row in df[df["success_flag"] == True].iterrows():  # noqa: E712
+        keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
+    return keys
 
 
 def _generate_constrained(
@@ -166,50 +173,24 @@ def _generate_constrained_batch(
 
 
 def _build_prompt(system: str, user: str, tokenizer: Any) -> str:
-    """Build a chat-formatted prompt."""
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    """Build a chat-formatted prompt. Falls back when tokenizer rejects system role (Gemma)."""
     if hasattr(tokenizer, "apply_chat_template"):
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return f"<|system|>{system}\n<|user|>{user}\n<|assistant|>"
-
-
-def _parse_raw_response(raw_response: str) -> tuple[bool, str, float, str, str, str]:
-    """
-    Parse a raw model response string into result fields.
-
-    Returns
-    -------
-    (success_flag, parsed_answer, parsed_confidence, parsed_rationale,
-     parse_method, failure_reason)
-    """
-    if not raw_response.strip():
-        return False, "", 0.0, "", "failed", "empty_response"
-
-    candidate = raw_response if raw_response.startswith("{") else None
-    if candidate is None:
-        # Try to find the first JSON object in the string
-        start = raw_response.find("{")
-        if start != -1:
-            candidate = raw_response[start:]
-
-    parsed = None
-    if candidate:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
         try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            parsed = _repair_json(candidate)
-
-    if parsed is None:
-        return False, "", 0.0, "", "failed", "parse_error"
-
-    return (
-        True,
-        str(parsed.get("answer", "")),
-        float(parsed.get("confidence", 0.0)),
-        str(parsed.get("rationale", "")),
-        "json",
-        "",
-    )
+            return tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        except Exception:
+            # Gemma-2 and some tokenizers: "System role not supported"
+            merged = f"{system.strip()}\n\n{user.strip()}"
+            fallback = [{"role": "user", "content": merged}]
+            return tokenizer.apply_chat_template(
+                fallback, tokenize=False, add_generation_prompt=True
+            )
+    return f"<|system|>{system}\n<|user|>{user}\n<|assistant|>"
 
 
 def evaluate_osm_model(
@@ -258,6 +239,13 @@ def evaluate_osm_model(
     # Drop empty prompts.
     pentad_df = pentad_df[pentad_df["prompt_text"].astype(str).str.strip() != ""].reset_index(drop=True)
 
+    # nnsight models (Qwen, Phi) often emit non-JSON under batched generate().
+    use_constrained_single = (
+        sample_index == 0 and model_cfg.get("patching_lib") == "nnsight"
+    )
+    if use_constrained_single:
+        batch_size = 1
+
     rows: list[dict] = []
     total = len(pentad_df)
     now_utc = datetime.now(timezone.utc).isoformat()
@@ -272,23 +260,33 @@ def evaluate_osm_model(
         ]
 
         t_start = time.monotonic()
-        try:
-            raw_responses = _generate_constrained_batch(
-                model, tokenizer, formatted_prompts, temperature, max_tokens
-            )
-        except Exception as exc:
-            # If batch generation fails entirely, produce error rows for all.
-            logger.warning(
-                "OSM %s: batch generation failed (%s). Falling back to single-prompt.", model_name, exc
-            )
+        if use_constrained_single:
             raw_responses = []
             for fp in formatted_prompts:
                 try:
                     raw_responses.append(
                         _generate_constrained(model, tokenizer, fp, temperature, max_tokens)
                     )
-                except Exception as e2:
-                    raw_responses.append(str(e2))
+                except Exception as exc:
+                    raw_responses.append(str(exc))
+        else:
+            try:
+                raw_responses = _generate_constrained_batch(
+                    model, tokenizer, formatted_prompts, temperature, max_tokens
+                )
+            except Exception as exc:
+                logger.warning(
+                    "OSM %s: batch generation failed (%s). Falling back to single-prompt.",
+                    model_name, exc,
+                )
+                raw_responses = []
+                for fp in formatted_prompts:
+                    try:
+                        raw_responses.append(
+                            _generate_constrained(model, tokenizer, fp, temperature, max_tokens)
+                        )
+                    except Exception as e2:
+                        raw_responses.append(str(e2))
 
         latency_ms_total = int((time.monotonic() - t_start) * 1000)
         per_prompt_ms = latency_ms_total // max(len(batch), 1)
@@ -296,19 +294,22 @@ def evaluate_osm_model(
         for j, (_, prow) in enumerate(batch.iterrows()):
             raw_response = raw_responses[j] if j < len(raw_responses) else ""
             success_flag, parsed_answer, parsed_confidence, parsed_rationale, parse_method, failure_reason = (
-                _parse_raw_response(raw_response)
+                parse_model_response(raw_response)
             )
 
             if not success_flag and j < len(formatted_prompts):
-                try:
-                    raw_response = _generate_constrained(
-                        model, tokenizer, formatted_prompts[j], temperature, max_tokens
-                    )
-                    success_flag, parsed_answer, parsed_confidence, parsed_rationale, parse_method, failure_reason = (
-                        _parse_raw_response(raw_response)
-                    )
-                except Exception:
-                    pass
+                for _ in range(2):
+                    try:
+                        raw_response = _generate_constrained(
+                            model, tokenizer, formatted_prompts[j], temperature, max_tokens
+                        )
+                        success_flag, parsed_answer, parsed_confidence, parsed_rationale, parse_method, failure_reason = (
+                            parse_model_response(raw_response)
+                        )
+                        if success_flag:
+                            break
+                    except Exception:
+                        pass
 
             rows.append(
                 {
@@ -364,19 +365,17 @@ def run_osm_behavioral(
     """
     ensure_dirs()
 
-    # Load existing results
+    # Load existing results and collapse duplicates from prior restart loops.
     if _BEHAVIORAL_PATH.exists():
-        existing = pd.read_parquet(_BEHAVIORAL_PATH)
-        logger.info("Loaded %d existing behavioral results.", len(existing))
+        existing = dedup_behavioral(reparse_failed_rows(pd.read_parquet(_BEHAVIORAL_PATH)))
+        if len(existing) > 0:
+            existing.to_parquet(_BEHAVIORAL_PATH, index=False)
+        logger.info("Loaded %d existing behavioral results (deduped).", len(existing))
     else:
         existing = pd.DataFrame()
 
-    completed_keys: set[tuple] = set()
-    if len(existing) > 0:
-        for _, row in existing[existing["success_flag"] == True].iterrows():  # noqa: E712
-            completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
-
-    all_rows: list[pd.DataFrame] = [existing] if len(existing) > 0 else []
+    completed_keys = _completed_keys_from(existing)
+    working = existing
 
     for model_cfg in OSM_MODELS:
         model_name = model_cfg["name"]
@@ -399,10 +398,9 @@ def run_osm_behavioral(
             det_results = evaluate_osm_model(
                 model_cfg, model, tokenizer, missing_det, run_id, temperature=0.0, sample_index=0
             )
-            all_rows.append(det_results)
-            # Incremental write
-            combined = pd.concat(all_rows, ignore_index=True)
-            combined.to_parquet(_BEHAVIORAL_PATH, index=False)
+            working = pd.concat([working, det_results], ignore_index=True)
+            working = _save_behavioral(working)
+            completed_keys = _completed_keys_from(working)
             logger.info("  Saved deterministic results incrementally.")
 
         # Variance pass (temperature=0.7, sample_index=1-5)
@@ -421,19 +419,10 @@ def run_osm_behavioral(
                     model_cfg, model, tokenizer, missing_var, run_id,
                     temperature=0.7, sample_index=si
                 )
-                all_rows.append(var_results)
-                combined = pd.concat(all_rows, ignore_index=True)
-                combined.to_parquet(_BEHAVIORAL_PATH, index=False)
+                working = pd.concat([working, var_results], ignore_index=True)
+                working = _save_behavioral(working)
+                completed_keys = _completed_keys_from(working)
 
-    # Final deduplication
-    final = pd.concat(all_rows, ignore_index=True) if all_rows else pd.DataFrame()
-    if len(final) > 0:
-        final = (
-            final.sort_values("timestamp_utc")
-            .drop_duplicates(subset=["prompt_id", "model_name", "sample_index"], keep="last")
-            .reset_index(drop=True)
-        )
-        final.to_parquet(_BEHAVIORAL_PATH, index=False)
-
+    final = _save_behavioral(working) if len(working) > 0 else pd.DataFrame()
     logger.info("OSM behavioral evaluation complete. Total rows: %d", len(final))
     return final

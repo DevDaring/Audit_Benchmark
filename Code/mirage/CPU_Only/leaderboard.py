@@ -38,6 +38,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
 from CPU_Only.scoring import _answers_match
+from Dataset.category_utils import normalize_seed_category
+from results_utils import dedup_behavioral
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +200,10 @@ def build_leaderboard(
         Index: benchmark names; columns: FM1..FM5 + composite_score.
     """
     ensure_dirs()
+    behavioral_df = dedup_behavioral(behavioral_df)
+    if len(cdva_df) > 0:
+        from results_utils import dedup_cdva
+        cdva_df = dedup_cdva(cdva_df)
 
     records: list[dict] = []
     for benchmark in BENCHMARKS:
