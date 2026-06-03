@@ -7,7 +7,7 @@ torch==2.5.1
 torchvision
 torchaudio
 numpy<2.0
-transformers==4.46.0
+transformers==4.47.1
 accelerate==0.34.0
 datasets==2.16.0
 bitsandbytes==0.46.1

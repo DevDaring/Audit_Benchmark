@@ -199,6 +199,69 @@ def patch_activation_transformer_lens(
 # nnsight patching (Qwen, Phi-4)
 # ---------------------------------------------------------------------------
 
+# Module-level LanguageModel cache for nnsight — prevents re-wrapping the same
+# HF model on every seed call (which leaks GPU memory and slows CDVA by ~2×).
+_NNSIGHT_MODEL_CACHE: dict[str, Any] = {}
+
+
+def _ensure_nnsight_model(model: Any, tokenizer: Any) -> Any:
+    """Return a cached nnsight LanguageModel wrapper for the given HF model."""
+    try:
+        from nnsight import LanguageModel  # type: ignore
+    except ImportError as exc:
+        raise ImportError("nnsight not installed.") from exc
+
+    hf_id = getattr(model.config, "_name_or_path", "") or id(model)
+    key = str(hf_id)
+    if key not in _NNSIGHT_MODEL_CACHE:
+        logger.info("Creating nnsight LanguageModel wrapper for '%s' (cached).", hf_id)
+        _NNSIGHT_MODEL_CACHE[key] = LanguageModel(model, tokenizer=tokenizer)
+    return _NNSIGHT_MODEL_CACHE[key]
+
+
+def _nnsight_layer_proxies(nn_model: Any, hf_model: Any) -> tuple[Any, Any]:
+    """
+    Return (layers_proxy, lm_head_proxy) for the given nnsight LanguageModel.
+
+    HuggingFace CausalLM classes come in two shapes:
+
+      Shape A — layers directly on top-level class (rare):
+          hf_model.layers        → decoder stack
+          hf_model.lm_head       → vocab projection
+
+      Shape B — layers nested inside an inner .model attribute (Qwen2, Phi3/4,
+                LlamaForCausalLM, MistralForCausalLM, GemmaForCausalLM, …):
+          hf_model.model.layers  → decoder stack
+          hf_model.lm_head       → vocab projection (always at top level)
+
+    We detect the shape from the *real* (non-proxy) HF model and return the
+    correct nnsight proxy paths so the trace assignment works for all models.
+    """
+    inner = getattr(hf_model, "model", None)
+    if inner is not None and hasattr(inner, "layers"):
+        # Shape B: Qwen2ForCausalLM, Phi3ForCausalLM, LlamaForCausalLM, …
+        layers_proxy = nn_model.model.model.layers
+        lm_head_proxy = nn_model.model.lm_head
+        logger.debug(
+            "nnsight layer path: .model.model.layers (inner model) "
+            "for %s", type(hf_model).__name__,
+        )
+    elif hasattr(hf_model, "layers"):
+        # Shape A: direct .layers (some GPT-NeoX style models)
+        layers_proxy = nn_model.model.layers
+        lm_head_proxy = nn_model.model.lm_head
+        logger.debug(
+            "nnsight layer path: .model.layers (top-level) "
+            "for %s", type(hf_model).__name__,
+        )
+    else:
+        raise AttributeError(
+            f"Cannot locate decoder layers in {type(hf_model).__name__}. "
+            "Expected .model.layers or .layers on the CausalLM object."
+        )
+    return layers_proxy, lm_head_proxy
+
+
 def patch_activation_nnsight(
     model: Any,
     tokenizer: Any,
@@ -209,16 +272,22 @@ def patch_activation_nnsight(
     bias_answer: str,
 ) -> float:
     """
-    Causal activation patch using nnsight (v0.6+).
+    Causal activation patch using nnsight (v0.3.7+).
 
     Replaces residual stream at (layer, position_b) in prompt_B with the
     cached residual at (layer, position_a) from prompt_A, for every layer.
 
-    nnsight 0.6+ note:
+    Architecture note:
+      HF CausalLM classes (Qwen2, Phi3/4, Llama) nest their decoder layers
+      at .model.layers inside the outer CausalLM wrapper; the lm_head lives
+      at the outer level.  We detect this dynamically via _nnsight_layer_proxies
+      to avoid hard-coding per-model paths.
+
+    nnsight note:
       After a trace context exits, saved proxies are resolved — their tensor
       value is accessible via `.value`.  When assigning a saved activation
       inside a *second* trace context, we must pass `.value` explicitly;
-      passing the proxy object itself raises RuntimeError in nnsight 0.6+.
+      passing the proxy object itself raises RuntimeError.
 
     Returns
     -------
@@ -227,21 +296,15 @@ def patch_activation_nnsight(
     """
     import torch
 
-    try:
-        from nnsight import LanguageModel  # type: ignore
-    except ImportError as exc:
-        raise ImportError(
-            "nnsight not installed. Install with: pip install nnsight"
-        ) from exc
-
-    nn_model = LanguageModel(model, tokenizer=tokenizer)
+    nn_model = _ensure_nnsight_model(model, tokenizer)
+    layers_proxy, lm_head_proxy = _nnsight_layer_proxies(nn_model, model)
 
     # ------------------------------------------------------------------
     # Pass 1: collect residual activations from prompt_A
     # ------------------------------------------------------------------
     cache_a_proxies: dict[int, Any] = {}
     with nn_model.trace(prompt_a):
-        for layer_idx, layer in enumerate(nn_model.model.layers):
+        for layer_idx, layer in enumerate(layers_proxy):
             cache_a_proxies[layer_idx] = layer.output[0][:, position_a, :].save()
 
     # Resolve .value OUTSIDE the trace so we have concrete tensors
@@ -252,19 +315,19 @@ def patch_activation_nnsight(
     # ------------------------------------------------------------------
     # Pass 2: patched forward on prompt_B (inject cache_a_vals)
     # ------------------------------------------------------------------
-    with nn_model.trace(prompt_b) as tracer:
-        for layer_idx, layer in enumerate(nn_model.model.layers):
+    with nn_model.trace(prompt_b):
+        for layer_idx, layer in enumerate(layers_proxy):
             if layer_idx in cache_a_vals:
                 # Use the concrete tensor (.value already resolved) --
                 # NOT the proxy object, which is invalid in a new trace.
                 layer.output[0][:, position_b, :] = cache_a_vals[layer_idx]
-        patched_logits = nn_model.lm_head.output.save()
+        patched_logits = lm_head_proxy.output.save()
 
     # ------------------------------------------------------------------
     # Pass 3: unpatched forward on prompt_B (baseline)
     # ------------------------------------------------------------------
     with nn_model.trace(prompt_b):
-        original_logits = nn_model.lm_head.output.save()
+        original_logits = lm_head_proxy.output.save()
 
     bias_token_ids = tokenizer.encode(bias_answer, add_special_tokens=False)
     if not bias_token_ids:

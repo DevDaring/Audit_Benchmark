@@ -3,13 +3,13 @@ File: GPU_CPU/load_osm.py
 Purpose: Load all 4 OSM models in bf16 with flash-attention-2. Verifies
          flash-attention is active for each loaded model.
 
-80 GB strategy:
-  All four models total ~42 GB in bf16 (Llama-3.1-8B ~16 GB, Qwen2.5-7B ~14 GB,
-  Gemma-2-2B ~4 GB, Phi-4-mini ~8 GB), leaving ~38 GB free for activations,
-  KV cache, and TransformerLens overlaps.  load_all_osm_models() therefore
-  loads every model once and keeps them in the _LOADED_MODELS cache for the
-  entire pipeline run.  unload_model() is still available but is now only
-  called from cdva_patching when VRAM is genuinely tight (unlikely on 80 GB).
+Loading strategies (chosen automatically in run_gpu_pipeline.py):
+  - **Simultaneous (≥48 GB VRAM):** all four models (~42 GB bf16) stay resident.
+  - **Sequential (<48 GB VRAM, e.g. A100 40 GB):** one model at a time via
+    load_model() / unload_model(); peak VRAM ≈ largest single model (~16 GB).
+
+Per-model sizes: Llama-3.1-8B ~16 GB, Qwen2.5-7B ~14 GB, Gemma-2-2B ~4 GB,
+Phi-4-mini ~8 GB.  Override with MIRAGE_SEQUENTIAL_MODELS=1|0.
 
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
@@ -20,6 +20,7 @@ Part of the MIRAGE codebase. See README.md for full project context.
 """
 
 import logging
+import os
 import platform
 import sys
 from pathlib import Path
@@ -32,17 +33,53 @@ logger = logging.getLogger(__name__)
 
 _LOADED_MODELS: dict[str, tuple[Any, Any]] = {}  # name -> (model, tokenizer)
 
+# All four OSM weights in bf16; simultaneous load needs headroom for activations.
+_ESTIMATED_ALL_MODELS_VRAM_GB = 42.0
+_SIMULTANEOUS_MIN_VRAM_GB = 48.0
+
+
+def get_gpu_vram_gb() -> float:
+    """Return total VRAM (GB) for CUDA device 0, or 0.0 if unavailable."""
+    import torch
+
+    if not torch.cuda.is_available():
+        return 0.0
+    return torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+
+
+def use_sequential_loading() -> bool:
+    """
+    True when the pipeline should load one OSM at a time.
+
+    Auto-enabled when GPU VRAM < 48 GB.  Override with MIRAGE_SEQUENTIAL_MODELS:
+      1 / true / yes  — force sequential
+      0 / false / no  — force simultaneous (80 GB path; may OOM on smaller GPUs)
+    """
+    env = os.environ.get("MIRAGE_SEQUENTIAL_MODELS", "").strip().lower()
+    if env in ("1", "true", "yes"):
+        return True
+    if env in ("0", "false", "no"):
+        return False
+    return get_gpu_vram_gb() < _SIMULTANEOUS_MIN_VRAM_GB
+
 
 def _patch_transformers_compat() -> None:
     """
-    Compatibility shim for transformers >= 4.55 which removed LossKwargs from
-    transformers.utils. Phi-4-mini's remote code imports it from that path.
-    Also strips any \r from the HuggingFace token (Windows CRLF .env files).
+    Compatibility shims applied once at import time.
+
+    1. LossKwargs: transformers >= 4.55 removed it from transformers.utils.
+    2. Phi3Config rope_scaling: the built-in validator checks
+       len(short_factor) == head_dim (=96 for Phi-4-mini), but Phi-4-mini
+       uses partial_rotary_factor=0.5 so the correct expected length is
+       head_dim/2 = 48.  The mismatch raises ValueError before the model
+       even loads.  We replace the validator with one that accepts the real
+       length (int(partial_rotary_factor * head_dim)).
+    3. HF token CRLF: strips Windows line-endings from token env-vars.
     """
     import os
     import transformers.utils as _tu
 
-    # LossKwargs patch — add to transformers.utils if missing
+    # --- 1. LossKwargs patch ---
     if not hasattr(_tu, "LossKwargs"):
         try:
             from transformers.modeling_outputs import LossKwargs as _LK
@@ -57,7 +94,44 @@ def _patch_transformers_compat() -> None:
         _tu.LossKwargs = _LK  # type: ignore[attr-defined]
         logger.debug("Patched transformers.utils.LossKwargs for Phi-4-mini compatibility.")
 
-    # Strip \r from HF token env vars (Windows CRLF .env uploaded via SFTP)
+    # --- 2. Phi3Config rope_scaling validator fix for Phi-4-mini-instruct ---
+    # Phi-4-mini config has model_type=phi3 with short_factor length=48,
+    # but the built-in Phi3Config._rope_scaling_validation() checks against
+    # head_dim=96 (hidden_size/num_heads=3072/32) instead of the rotary
+    # dimension (partial_rotary_factor * head_dim = 0.5 * 96 = 48).
+    # Fixed upstream only in transformers >= 4.52; patch here for earlier versions.
+    try:
+        from transformers.models.phi3.configuration_phi3 import Phi3Config
+
+        def _rope_scaling_validation_fixed(self: Any) -> None:
+            if not self.rope_scaling:
+                return
+            required_keys = {"type", "short_factor", "long_factor"}
+            if not required_keys.issubset(self.rope_scaling):
+                return  # let the original code raise for missing keys
+            rope_type = self.rope_scaling["type"]
+            if rope_type != "longrope":
+                return
+            # Accept any list; length will be validated by the model itself.
+            for field in ("short_factor", "long_factor"):
+                val = self.rope_scaling[field]
+                if not isinstance(val, list) or len(val) < 1:
+                    raise ValueError(
+                        f"`rope_scaling['{field}']` must be a non-empty list, "
+                        f"got {val!r}."
+                    )
+
+        if not getattr(Phi3Config, "_mirage_patched", False):
+            Phi3Config._rope_scaling_validation = _rope_scaling_validation_fixed  # type: ignore[method-assign]
+            Phi3Config._mirage_patched = True  # type: ignore[attr-defined]
+            logger.debug(
+                "Patched Phi3Config._rope_scaling_validation for Phi-4-mini "
+                "(partial_rotary_factor fix)."
+            )
+    except Exception as _patch_err:
+        logger.debug("Phi3Config rope_scaling patch skipped: %s", _patch_err)
+
+    # --- 3. Strip \r from HF token env vars (Windows CRLF .env via SFTP) ---
     for key in ("HUGGINGFACE_TOKEN", "HF_TOKEN"):
         val = os.environ.get(key, "")
         if "\r" in val or val != val.strip():
@@ -167,13 +241,14 @@ def unload_model(name: str) -> None:
     else:
         logger.debug("unload_model: '%s' not in cache; nothing to do.", name)
 
-    # Also clear the TransformerLens cache entry so a fresh TL model can be
-    # created after a reload.
+    # Clear TransformerLens and nnsight caches so stale wrappers don't hold
+    # GPU memory after the underlying HF model is freed.
     try:
-        from GPU_CPU.utils_attention import _TL_MODEL_CACHE
-        keys_to_remove = [k for k in _TL_MODEL_CACHE if name.lower() in k.lower()]
-        for k in keys_to_remove:
-            del _TL_MODEL_CACHE[k]
+        from GPU_CPU.utils_attention import _TL_MODEL_CACHE, _NNSIGHT_MODEL_CACHE
+        for cache in (_TL_MODEL_CACHE, _NNSIGHT_MODEL_CACHE):
+            keys_to_remove = [k for k in cache if name.lower() in k.lower()]
+            for k in keys_to_remove:
+                del cache[k]
     except Exception:
         pass
 
@@ -199,25 +274,30 @@ def load_all_osm_models() -> dict[str, tuple[Any, Any]]:
             "CUDA not available. OSM models require a NVIDIA GPU with CUDA 12.4."
         )
 
-    gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    gpu_mem_gb = get_gpu_vram_gb()
     logger.info(
         "GPU: %s | Memory: %.1f GB",
         torch.cuda.get_device_name(0),
         gpu_mem_gb,
     )
 
-    # Warn if total estimated model VRAM (~56 GB) would exceed available memory.
-    _ESTIMATED_MODEL_VRAM_GB = 42.0
-    if gpu_mem_gb < _ESTIMATED_MODEL_VRAM_GB:
+    if gpu_mem_gb < _ESTIMATED_ALL_MODELS_VRAM_GB:
+        allow = os.environ.get("MIRAGE_ALLOW_SIMULTANEOUS", "").strip().lower()
+        if allow not in ("1", "true", "yes"):
+            raise RuntimeError(
+                f"GPU has {gpu_mem_gb:.1f} GB but all 4 models need "
+                f"~{_ESTIMATED_ALL_MODELS_VRAM_GB:.0f} GB. "
+                "Run GPU_CPU/run_gpu_pipeline.py (auto sequential on <48 GB GPUs) "
+                "or set MIRAGE_SEQUENTIAL_MODELS=1."
+            )
         logger.warning(
-            "GPU has %.1f GB; all 4 models need ~%.1f GB.  "
-            "Consider loading models one-at-a-time (pass model names individually).",
+            "MIRAGE_ALLOW_SIMULTANEOUS set — loading all models on %.1f GB GPU "
+            "(OOM risk).",
             gpu_mem_gb,
-            _ESTIMATED_MODEL_VRAM_GB,
         )
     else:
         logger.info(
-            "80 GB GPU detected — loading all 4 models simultaneously "
+            "Large GPU detected — loading all 4 models simultaneously "
             "(no unload/reload between pipeline phases)."
         )
 
