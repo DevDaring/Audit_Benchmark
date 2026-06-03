@@ -122,7 +122,7 @@ deployment:
 
 # ── Close previous deployments ────────────────────────────────────────────
 print("[deploy] Closing any leftover open deployments ...")
-OLD_DSEQS = ['27070590', '27070564', '27070538', '27070733', '27071620']
+OLD_DSEQS = ['27072516', '27070590', '27070564', '27070538', '27070733', '27071620']
 for old in OLD_DSEQS:
     r = requests.delete(BASE + '/v1/deployments/' + old, headers=H, timeout=20)
     if r.status_code in (200, 201):

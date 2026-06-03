@@ -3,15 +3,12 @@ File: GPU_CPU/osm_behavioral.py
 Purpose: Behavioral evaluation of all 4 OSM models across the full pentad
          probe set. Produces behavioral_results.parquet.
 
-Parallelism strategy (A100 80 GB SXM4):
-  - All 4 OSM models are kept in VRAM simultaneously (~56 GB total), so there
-    is no model-reload overhead between evaluation phases.
-  - Batch inference: EVAL_BATCH_SIZE prompts are tokenised and forwarded in a
-    single GPU call instead of one at a time.  On 80 GB with 24 GB headroom
-    a batch of 8 fits comfortably even for the largest model (Phi-4-mini, ~8 GB).
-  - Outlines constrained decoding is single-prompt only; the batch path uses
-    raw model.generate() with left-padding, which is equally deterministic at
-    temperature=0.
+Parallelism strategy:
+  - **80 GB GPU:** all 4 OSM models stay in VRAM; EVAL_BATCH_SIZE=8 batched forwards.
+  - **≤40 GB GPU (sequential loading):** one model at a time; batch size auto-reduced
+    to 4 (override with MIRAGE_EVAL_BATCH_SIZE).
+  - Outlines constrained decoding is single-prompt only; nnsight models (Qwen, Phi)
+    always use batch_size=1 on the deterministic pass.
 
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
@@ -23,6 +20,7 @@ Part of the MIRAGE codebase. See README.md for full project context.
 
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -38,9 +36,21 @@ from results_utils import dedup_behavioral, reparse_failed_rows
 
 logger = logging.getLogger(__name__)
 
-# Number of prompts to forward in a single batched GPU call.
-# 8 fits in 80 GB for all models; lower to 4 if OOM errors appear on smaller GPUs.
+# Number of prompts to forward in a single batched GPU call (80 GB, all models resident).
 EVAL_BATCH_SIZE: int = 8
+
+
+def _eval_batch_size() -> int:
+    """Batch size for behavioral inference; lower on sequential / smaller GPUs."""
+    override = os.environ.get("MIRAGE_EVAL_BATCH_SIZE", "").strip()
+    if override.isdigit():
+        return max(1, int(override))
+    try:
+        from GPU_CPU.load_osm import use_sequential_loading
+
+        return 4 if use_sequential_loading() else EVAL_BATCH_SIZE
+    except Exception:
+        return EVAL_BATCH_SIZE
 
 _BEHAVIORAL_PATH = RESULTS_DIR / "behavioral_results.parquet"
 
@@ -65,12 +75,14 @@ def _save_behavioral(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _completed_keys_from(df: pd.DataFrame) -> set[tuple]:
-    keys: set[tuple] = set()
     if len(df) == 0 or "success_flag" not in df.columns:
-        return keys
-    for _, row in df[df["success_flag"] == True].iterrows():  # noqa: E712
-        keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
-    return keys
+        return set()
+    done = df[df["success_flag"].astype(bool)]
+    if len(done) == 0:
+        return set()
+    return set(
+        zip(done["prompt_id"], done["model_name"], done["sample_index"].astype(int))
+    )
 
 
 def _generate_constrained(
@@ -103,6 +115,8 @@ def _generate_constrained(
                 temperature=temperature if temperature > 0 else None,
                 do_sample=temperature > 0,
                 pad_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.1,
+                eos_token_id=tokenizer.eos_token_id,
             )
         return tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
@@ -161,6 +175,11 @@ def _generate_constrained_batch(
                 temperature=temperature if temperature > 0 else None,
                 do_sample=temperature > 0,
                 pad_token_id=tokenizer.pad_token_id,
+                # Prevent degenerate repetition loops (common on small models,
+                # causes generate() to hang at max_new_tokens=256).
+                repetition_penalty=1.1,
+                # Stop cleanly at EOS even before max_new_tokens is reached.
+                eos_token_id=tokenizer.eos_token_id,
             )
     finally:
         tokenizer.padding_side = orig_padding_side
@@ -344,7 +363,7 @@ def evaluate_osm_model(
                 }
             )
 
-        if (batch_start + len(batch)) % 50 < batch_size:
+        if (batch_start + len(batch)) % 100 < batch_size:
             logger.info(
                 "OSM %s: %d/%d prompts done (sample_index=%d, batch_size=%d).",
                 model_name, batch_start + len(batch), total, sample_index, batch_size,
@@ -376,6 +395,7 @@ def run_osm_behavioral(
 
     completed_keys = _completed_keys_from(existing)
     working = existing
+    batch_size = _eval_batch_size()
 
     for model_cfg in OSM_MODELS:
         model_name = model_cfg["name"]
@@ -386,17 +406,21 @@ def run_osm_behavioral(
         model, tokenizer = models[model_name]
 
         # Deterministic pass (temperature=0, sample_index=0)
-        missing_det = pentad_df[
-            ~pentad_df["prompt_id"].apply(
-                lambda pid: (pid, model_name, 0) in completed_keys
-            )
-        ]
+        done_det = {pid for (pid, mn, si) in completed_keys if mn == model_name and si == 0}
+        missing_det = pentad_df[~pentad_df["prompt_id"].isin(done_det)]
         if len(missing_det) > 0:
             logger.info(
                 "OSM %s: deterministic pass on %d prompts ...", model_name, len(missing_det)
             )
             det_results = evaluate_osm_model(
-                model_cfg, model, tokenizer, missing_det, run_id, temperature=0.0, sample_index=0
+                model_cfg,
+                model,
+                tokenizer,
+                missing_det,
+                run_id,
+                temperature=0.0,
+                sample_index=0,
+                batch_size=batch_size,
             )
             working = pd.concat([working, det_results], ignore_index=True)
             working = _save_behavioral(working)
@@ -405,19 +429,22 @@ def run_osm_behavioral(
 
         # Variance pass (temperature=0.7, sample_index=1-5)
         for si in range(1, 6):
-            missing_var = pentad_df[
-                ~pentad_df["prompt_id"].apply(
-                    lambda pid: (pid, model_name, si) in completed_keys
-                )
-            ]
+            done_var = {pid for (pid, mn, sv) in completed_keys if mn == model_name and sv == si}
+            missing_var = pentad_df[~pentad_df["prompt_id"].isin(done_var)]
             if len(missing_var) > 0:
                 logger.info(
                     "OSM %s: variance pass sample_index=%d on %d prompts ...",
                     model_name, si, len(missing_var),
                 )
                 var_results = evaluate_osm_model(
-                    model_cfg, model, tokenizer, missing_var, run_id,
-                    temperature=0.7, sample_index=si
+                    model_cfg,
+                    model,
+                    tokenizer,
+                    missing_var,
+                    run_id,
+                    temperature=0.7,
+                    sample_index=si,
+                    batch_size=batch_size,
                 )
                 working = pd.concat([working, var_results], ignore_index=True)
                 working = _save_behavioral(working)

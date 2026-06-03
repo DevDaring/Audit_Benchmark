@@ -1137,7 +1137,17 @@ def build_pentad_dataset(
 
     if _PENTAD_PATH.exists() and not force:
         logger.info("Pentad dataset cache hit: %s", _PENTAD_PATH)
-        return pd.read_parquet(_PENTAD_PATH)
+        cached = pd.read_parquet(_PENTAD_PATH)
+        # Older builds may include WinoBias; production pentad must exclude it.
+        wino_mask = cached["seed_source"].astype(str).str.lower() == "winobias"
+        if wino_mask.any():
+            n_wino = int(wino_mask.sum())
+            logger.warning(
+                "Stripping %d WinoBias rows from cached pentad (held-out benchmark).",
+                n_wino,
+            )
+            cached = cached[~wino_mask].reset_index(drop=True)
+        return cached
 
     # Only audited benchmarks enter the pentad (WinoBias is held out).
     seeds_df = seeds_df[
