@@ -68,11 +68,16 @@ PIPELINE_COMPLETE → final sentinel
 | gemma-2-2b-it | DONE (10,132 rows, 1 parse fail = 0.01%) | RERUNNING (position fix active) | TransformerLens |
 | phi-4-mini-instruct | NOT STARTED (will run with batch_size=4) | NOT STARTED | nnsight |
 
-**ETA to completion from 11:21 IST Jun 4:**
-- All 4 × CDVA (~60 min each): ~4 hours
-- Phi-4-mini behavioral (7,152 prompts, batch=4): ~3–3.5 hours (runs in parallel with Llama/Qwen/Gemma CDVA since behavioral is per-model before CDVA)
-- Phi CDVA: ~60 min
-- **Total: ~5–6 hours = completion by 16:30–17:30 IST Jun 4**
+**ETA to completion from 11:35 IST Jun 4 (06:05 UTC):**
+
+| Remaining stage | Duration | Done by (UTC) |
+|---|---|---|
+| Llama CDVA remaining (546/596 seeds, ~15.4 seeds/min) | ~35 min | ~06:40 |
+| Qwen CDVA (596 seeds, behavioral skipped) | ~40 min | ~07:20 |
+| Gemma CDVA (596 seeds, behavioral skipped) | ~42 min | ~08:02 |
+| Phi load + behavioral det (7,152 prompts, batch=4, ~20 prompts/min) | ~3.5–4 hr | ~12:00 |
+| Phi CDVA (596 seeds) | ~40 min | ~12:40 |
+| **Completion** | | **~12:40 UTC = 18:10 IST Jun 4** |
 
 ---
 
