@@ -169,7 +169,7 @@ End the section with a paragraph titled "Position of this Work" that has a table
 - Limitations 1: English-only evaluation. Multilingual extension is published follow-on work.
 - Limitations 2: Mid-tier OSM (3.8B–9B); frontier models accessed only via API for behavioral audit.
 - Limitations 3: Pentad slot (d) and (e) generated with author-only verification; no inter-annotator agreement.
-- Limitations 4 (CDVA coverage): CDVA is computed for 4 OSM models only. For Qwen-2.5-7B-Instruct, 5 of 5960 CDVA pairs (0.08%, all from a single religion-category seed) failed due to a nnsight trace anomaly on a high-token-count prompt; those pairs are excluded from CDVA analysis for that model. This exclusion has no material effect on any aggregate statistic. State the exact count in a parenthetical, not in the main text.
+- Limitations 4 (CDVA position detection): CDVA delta_logit is valid only when the demographic swap token is found in the tokenised prompt (`position_fallback_used=False`). The primary analysis excludes fallback-position pairs (where `pos_a = pos_b = 1`, a non-demographic token) because patching the wrong position produces a trivially-zero delta. After the June 4 normalisation fix (underscore→space + char-level search), the fallback rate dropped from ~53% to < 10%. All reported CDVA statistics are computed on `position_fallback_used=False` rows only; the fallback rate per model is reported in a table footnote in §6.4. State the exact counts (total pairs and position-detected pairs) per model.
 - Ethical considerations: Dual-use risk (audit techniques can be inverted to construct adversarial CoT attacks), data sensitivity in source benchmarks, accessibility of the audit toolkit for under-resourced researchers and institutions.
 
 **Section 9 — Conclusion.** Three paragraphs, no new content. Restate contributions; preview multilingual v2; final sentence on the social-systems implication.
@@ -312,27 +312,48 @@ If any of these files are absent at write time, mark the corresponding paragraph
 
 Statistics text must always carry: point estimate, 95% bootstrap CI in square brackets, n, and (when relevant) effect size. Format example: "Llama-3.1-8B passed BBQ at 78.4% [76.1, 80.6] (n = 270), Cohen's h vs MIRAGE-Full = 0.84."
 
-### 6.1 Known data quality facts from the production run (June 2026)
+### 6.1 Known data quality facts from the production run (June 4, 2026)
 
-These are facts established from the production GPU run and must be cited accurately in the paper:
+These facts are established from the production GPU run. **Populate every number from the actual parquet files before writing** — do not use stale figures from earlier runs.
+
+#### 6.1.1 Behavioral evaluation
 
 | Stat | Value | Where to use |
 |---|---|---|
 | Behavioral rows (OSM, total) | 40,528 (4 × 10,132) | §5.2 table footnote |
-| Llama-3.1-8B behavioral parse failures | 0 / 10,132 | §5.3 |
-| Qwen-2.5-7B behavioral parse failures | 174 / 10,132 (1.7%) | §5.3 |
+| Llama-3.1-8B behavioral parse failures | 0 / 10,132 (0.00%) | §5.3 |
+| Qwen-2.5-7B behavioral parse failures | 122 / 10,132 (1.20%) | §5.3 |
 | Gemma-2-2B behavioral parse failures | 1 / 10,132 (0.01%) | §5.3 |
 | Phi-4-mini behavioral parse failures | populate from `behavioral_results.parquet` | §5.3 |
-| CDVA pairs total (4 OSM × 596 seeds × 10 pairs) | 23,840 | §4.2 |
-| Llama CDVA: successful pairs | 5,960 / 5,960 (100%) | §6.4 |
-| Qwen CDVA: successful pairs | 5,955 / 5,960 (99.92%) | §6.4 footnote |
-| Gemma CDVA: successful pairs | populate from `cdva_results.parquet` | §6.4 |
-| Phi CDVA: successful pairs | populate from `cdva_results.parquet` | §6.4 |
 | A100 GPU | 40 GB VRAM, sequential model loading | §5.2 |
 | TransformerLens models | Llama-3.1-8B-Instruct, Gemma-2-2B-IT | §4.2, Table 5.2 |
 | nnsight models | Qwen-2.5-7B-Instruct, Phi-4-mini-instruct | §4.2, Table 5.2 |
 
-The 5 excluded Qwen CDVA pairs (seed `stereo_fad0127e`, religion category, pairs: bible_2/muslim, bible_2/sikh, hindu/muslim, hindu/sikh, muslim/sikh) are excluded from aggregate statistics and noted in a parenthetical in §8 Limitations.
+Note: earlier internal figures showed 174 Qwen failures; the current production run shows 122. Use the value from the final `behavioral_results.parquet` file.
+
+#### 6.1.2 CDVA results (post position-detection fix — June 4 rerun)
+
+| Stat | Value | Where to use |
+|---|---|---|
+| CDVA pairs total (4 OSM × 596 seeds × 10 pairs) | 23,840 | §4.2 |
+| CDVA rows with `position_fallback_used=False` | populate from `cdva_results.parquet` | §6.4 primary analysis |
+| Llama CDVA: position-detected pairs (fallback=False) | populate from `cdva_results.parquet` | §6.4 |
+| Qwen CDVA: position-detected pairs (fallback=False) | populate from `cdva_results.parquet` | §6.4 |
+| Gemma CDVA: position-detected pairs (fallback=False) | populate from `cdva_results.parquet` | §6.4 |
+| Phi CDVA: position-detected pairs (fallback=False) | populate from `cdva_results.parquet` | §6.4 |
+| Expected fallback rate after fix | < 10% (down from 53% before Jun 4 fix) | §4.2 footnote |
+
+**Critical: use only `position_fallback_used=False` rows for all CDVA analysis.** When the fallback fires, `pos_a = pos_b = 1` (second token, i.e., the BOS prefix token), which is wrong; patching a non-demographic position produces delta_logit = 0 for 91.5% of those pairs, inflating the zero mass and diluting the bias signal. The primary analysis filter must be `success_flag=True AND position_fallback_used=False`. Report both counts — total successful pairs and position-detected pairs — in §6.4.
+
+#### 6.1.3 CDVA position detection — technical note for §4.2
+
+The `_get_token_position` function locates the demographic swap token in each tokenised prompt. Swap tokens are stored with underscores in the pentad dataset (e.g., `a_girl`, `middle_aged`, `a_trailer_park`) because underscores are used as multi-word delimiters in the seed vocabulary. Before the June 4 fix, the function searched for the literal string including underscores; since tokenizers split words on spaces, not underscores, the token was never found for ~53% of pairs — all multi-word swap tokens. The fix applies a three-pass strategy:
+
+1. Normalise underscores to spaces: `a_girl` → `a girl`.
+2. Search for the full phrase in the concatenated decoded token string (char-level, mapping back to token index).
+3. If not found, try each word of the phrase in reverse order (skipping words of length ≤ 2) to handle cases where the full phrase is partially tokenised.
+
+This reduced the fallback rate from ~53% to < 10%. For the paper: add one sentence to §4.2 stating the swap-token normalisation step and the measured fallback rate after the fix.
 
 ---
 

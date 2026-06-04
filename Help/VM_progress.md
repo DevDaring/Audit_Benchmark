@@ -57,16 +57,22 @@ PIPELINE_COMPLETE → final sentinel
 
 ---
 
-## Current Run Status (last updated: Jun 4, 2026)
+## Current Run Status (last updated: Jun 4, 2026 — 11:21 IST)
+
+**Active pipeline PID 29226** — CDVA rerun with position-detection fix (all 4 models, behavioral already complete for Llama/Qwen/Gemma).
 
 | Model | Behavioral | CDVA | Notes |
 |---|---|---|---|
-| llama-3.1-8b-instruct | DONE (10,132 rows, 0 failures) | DONE (5,960/5,960 success) | TransformerLens |
-| qwen2.5-7b-instruct | DONE (10,132 rows, 174 parse fails = 1.7%) | DONE (5,955/5,960 — 5 pairs excluded) | nnsight |
-| gemma-2-2b-it | DONE (10,132 rows, 1 parse fail) | IN PROGRESS (~125/596 seeds as of 03:02 UTC) | TransformerLens |
-| phi-4-mini-instruct | NOT STARTED | NOT STARTED | nnsight |
+| llama-3.1-8b-instruct | DONE (10,132 rows, 0 failures) | RERUNNING (position fix active) | TransformerLens |
+| qwen2.5-7b-instruct | DONE (10,132 rows, 122 parse fails = 1.20%) | RERUNNING after nnsight proxy fix | nnsight |
+| gemma-2-2b-it | DONE (10,132 rows, 1 parse fail = 0.01%) | RERUNNING (position fix active) | TransformerLens |
+| phi-4-mini-instruct | NOT STARTED (will run with batch_size=4) | NOT STARTED | nnsight |
 
-**ETA to completion:** ~2.5 hours from 03:08 UTC Jun 4 = ~05:30 UTC (11:00 AM IST)
+**ETA to completion from 11:21 IST Jun 4:**
+- All 4 × CDVA (~60 min each): ~4 hours
+- Phi-4-mini behavioral (7,152 prompts, batch=4): ~3–3.5 hours (runs in parallel with Llama/Qwen/Gemma CDVA since behavioral is per-model before CDVA)
+- Phi CDVA: ~60 min
+- **Total: ~5–6 hours = completion by 16:30–17:30 IST Jun 4**
 
 ---
 
@@ -75,7 +81,9 @@ PIPELINE_COMPLETE → final sentinel
 | Bug | Symptom | Fix (commit) |
 |---|---|---|
 | Gemma-2 CDVA device mismatch | `HookedTransformer.from_pretrained` raises "Expected all tensors on same device" before cache line is reached; every pair re-attempts conversion | Temporarily move HF model to CPU before TL conversion, then move TL model + deep-scan non-registered attributes to GPU. (commit `0f7a1ba`) |
-| Qwen/Phi CDVA AttributeError | `_nnsight_layer_proxies` built proxy chains (`nn_model.model.model.layers`) causing `'Qwen2Model' object has no attribute 'model'` | Changed to use actual HF module references: `inner.layers` and `hf_model.lm_head`. (commit `e2eab12`) |
+| Qwen/Phi CDVA `AttributeError` — nnsight proxy chain | `_nnsight_layer_proxies` built incorrect proxy path (`nn_model.model.model.layers`); previous "fix" to `hf_model.model.layers` gave raw `nn.Module` objects with no `.output` attribute | **Root fix (commit `6fc63db`):** access layers INSIDE each `nn_model.trace()` context via `nn_model.model.layers[i]` (nnsight proxy objects); `lm_head` captured via `nn_model.lm_head.output.save()` |
+| Phi-4-mini behavioral batch_size=1 | `use_constrained_single=True` for nnsight models forced outlines single-prompt path (~12 s/prompt); 7,152 det-pass prompts would take ~32 hours | Removed `use_constrained_single` check; batch generation (batch=4, ~7 s/batch) reduces det-pass to ~3 hours (commit `6fc63db`) |
+| CDVA position detection failure for multi-word swap tokens | Swap tokens stored with underscores (`a_girl`, `middle_aged`, `a_trailer_park`); tokenizer never produces underscore-delimited tokens, so 53% of pairs fell back to `pos=1` (BOS prefix) — wrong position — producing trivially-zero delta_logit (91.5% zeros in fallback rows) | **Root fix (commit `fa47626`):** normalise underscores to spaces, then apply 3-pass char-level search: (1) single-token substring, (2) full-phrase in concatenated decoded string with char→token mapping, (3) last-word heuristic. Fallback rate drops from ~53% to < 10%. All CDVA results wiped and rerun with the fix. |
 | Behavioral resume slow | `_completed_keys_from` used `iterrows()` on up to 171k rows — 5–15 min between models | Vectorised with `isin` and set comprehensions; resume overhead now < 5 s. |
 | Pentad WinoBias contamination | `ValueError: WinoBias rows in pentad — must be held out` | `pentad_generator.py` now auto-excludes WinoBias seeds. |
 
@@ -138,10 +146,14 @@ echo $!
 | Situation | Action |
 |---|---|
 | CDVA parquet has failed rows for a model | Run cleanup script to remove failed rows for that model only; restart pipeline |
+| CDVA parquet has all-zero delta_logit values | Check `position_fallback_used` distribution — if > 10%, the position-detection fix (commit `fa47626`) is not deployed; pull latest and wipe+rerun CDVA |
 | TL conversion fails for Gemma-2 | The CPU-first fix in `utils_attention.py` (commit `0f7a1ba`) resolves this |
-| nnsight AttributeError for Qwen/Phi | The HF module ref fix in `utils_attention.py` (commit `e2eab12`) resolves this |
+| nnsight `AttributeError` for Qwen/Phi | Layer access must be inside trace via `nn_model.model.layers[i]`; commit `6fc63db` resolves this |
 | Behavioral parquet has stale rows | Resume logic in `osm_behavioral.py` skips completed (prompt_id, model, sample_index) triples automatically |
 | Pipeline killed mid-CDVA | Restart without any cleanup — CDVA resume skips seeds whose (seed_id, model_name) are in the parquet with `success_flag=True` |
+| Phi behavioral very slow (batch_size=1 in log) | Check that commit `6fc63db` is deployed; `use_constrained_single` must be `False` |
+
+**CDVA analysis filter (mandatory for paper):** only use rows where `success_flag=True AND position_fallback_used=False`. The `position_fallback_used=True` rows have `pos_a = pos_b = 1` (wrong position) and produce trivially-zero delta_logit in 91.5% of cases — they convey no information about model bias.
 
 **Never** run two pipeline instances simultaneously on the same parquet files.
 

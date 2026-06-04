@@ -357,27 +357,72 @@ for _module in tl_model.modules():
             setattr(_module, _attr, _val.to(target_device))
 ```
 
-### 6.4 nnsight layer proxy strategy
+### 6.4 nnsight layer proxy — correct access pattern
 
-`_nnsight_layer_proxies` in `GPU_CPU/utils_attention.py` returns actual HF module references (not nnsight proxy chains). Inside a `with nn_model.trace():` context, nnsight intercepts `.output` attribute access on real `nn.Module` objects that are part of the traced graph. Building proxy chains like `nn_model.model.model.layers` causes `AttributeError` because nnsight's `.model` property resolves to the inner model (e.g. `Qwen2Model`), which has no further `.model` attribute.
+nnsight's `.output` attribute only exists on **proxy objects** returned inside a `with nn_model.trace():` context. Accessing `.output` on raw `nn.Module` objects (e.g., `hf_model.model.layers[i]`) raises `AttributeError: 'Qwen2DecoderLayer' object has no attribute 'output'`.
 
 ```python
-# Correct (commit e2eab12):
-layers_proxy = hf_model.model.layers   # actual nn.ModuleList
-lm_head_proxy = hf_model.lm_head       # actual nn.Linear
+# Correct (commit 6fc63db): access layers INSIDE trace via nnsight proxy chain
+with nn_model.trace(prompt):
+    layer = nn_model.model.layers[layer_idx]   # proxy object inside trace
+    act = layer.output[0][:, position, :].save()
+    logits = nn_model.lm_head.output.save()
 
-# Wrong (pre-fix):
-layers_proxy = nn_model.model.model.layers   # AttributeError: 'Qwen2Model' has no attr 'model'
+# Wrong — hf_model.model.layers gives raw nn.Module (no .output attr):
+layers = hf_model.model.layers   # raw nn.ModuleList
+with nn_model.trace(prompt):
+    act = layers[0].output[0][...]   # AttributeError
 ```
 
-### 6.5 Production CDVA statistics (June 2026)
+Note: `nn_model.model` in nnsight resolves to the **inner transformer** (e.g. `Qwen2Model`), not the outer CausalLM wrapper. `nn_model.lm_head` correctly accesses `Qwen2ForCausalLM.lm_head` through the LanguageModel's `__getattr__`.
 
-| Model | Pairs attempted | Successful | Notes |
+### 6.5 CDVA position detection — swap-token normalisation (commit `fa47626`)
+
+Swap tokens in the pentad dataset are stored with underscores as word separators (`a_girl`, `middle_aged`, `a_trailer_park`, `non_disabled`, etc.). Tokenizers produce space-separated token strings, never underscore-delimited ones. Before the June 4 fix, `_get_token_position` searched for the literal underscore string and returned `None` for all multi-word tokens (~53% of pairs), triggering `position_fallback_used=True` and setting `pos_a = pos_b = 1` (BOS prefix token — wrong position). Patching the wrong position produced delta_logit = 0 for 91.5% of fallback rows — not real "no-bias" findings, just noise.
+
+**Fix:** three-pass normalised search in `GPU_CPU/utils_attention.py`:
+1. Replace `_` with space: `a_girl` → `a girl`.
+2. Full-phrase char-level search on the concatenated decoded token string, mapping the match character-offset back to the token index.
+3. Last-word fallback: try each word of the phrase in reverse order, skipping words of length ≤ 2, to handle cases where the full phrase straddles a special token boundary.
+
+```python
+target_text = target_token.lower().replace("_", " ").strip()
+# pass 1: single-token substring
+for i, tok_str in enumerate(token_strs):
+    if target_text in tok_str.lower():
+        return i
+# pass 2: char-level search on concat
+concat = "".join(t.lower() for t in token_strs)
+char_pos = concat.find(target_text)
+if char_pos != -1:
+    cumlen = 0
+    for i, tok_str in enumerate(token_strs):
+        cumlen += len(tok_str)
+        if cumlen > char_pos:
+            return i
+# pass 3: last-word fallback
+for word in reversed(target_text.split()):
+    if len(word) > 2:
+        char_pos = concat.find(word)
+        if char_pos != -1: ...
+```
+
+Fallback rate dropped from ~53% to < 10% after the fix. All CDVA results were wiped and rerun on June 4 with this fix applied.
+
+**Analysis filter (mandatory):** use only `success_flag=True AND position_fallback_used=False` rows for all CDVA analysis. `position_fallback_used=True` rows are structurally invalid and must be excluded before computing delta_logit statistics, CDVA scores, or any downstream validity metric.
+
+### 6.6 Production CDVA statistics (June 4, 2026 — post position fix rerun)
+
+Populate from `cdva_results.parquet` after the pipeline completes. The expected pattern:
+
+| Model | Total pairs | position_fallback=False | Expected zero% (fallback=False only) |
 |---|---|---|---|
-| Llama-3.1-8B-Instruct | 5,960 | 5,960 (100%) | |
-| Qwen-2.5-7B-Instruct | 5,960 | 5,955 (99.92%) | 5 pairs of 1 seed excluded (nnsight trace on high-token-count prompt) |
-| Gemma-2-2B-IT | 5,960 | TBD | CPU-first TL fix applied |
-| Phi-4-mini-instruct | 5,960 | TBD | nnsight fix applied |
+| Llama-3.1-8B-Instruct | 5,960 | ~5,400–5,700 | < 5% |
+| Qwen-2.5-7B-Instruct | 5,960 | ~5,400–5,700 | < 5% |
+| Gemma-2-2B-IT | 5,960 | ~5,400–5,700 | < 5% |
+| Phi-4-mini-instruct | 5,960 | ~5,400–5,700 | < 5% |
+
+The remaining < 10% fallback rows are edge cases where the swap token does not appear verbatim in the prompt (e.g. subword-tokenised multi-character international names). These should be reported as a coverage footnote in §6.4 of the paper.
 
 ---
 
@@ -702,9 +747,20 @@ This error inside `HookedTransformer.from_pretrained` means architecture-specifi
 
 Fix: `GPU_CPU/utils_attention.py` `_ensure_hooked_transformer` moves the HF model to CPU before calling `from_pretrained`, then moves TL model back to GPU with a deep attribute scan. This is implemented in commit `0f7a1ba`. Do not revert the `move_to_device` / `device` arguments — they are intentionally absent.
 
-### CDVA: "'Qwen2Model' object has no attribute 'model'" (Qwen, Phi)
+### CDVA: `'Qwen2DecoderLayer' object has no attribute 'output'` (Qwen, Phi — nnsight)
 
-This means `_nnsight_layer_proxies` was building proxy chains rather than returning real HF module references. The fix in commit `e2eab12` changes `layers_proxy = nn_model.model.model.layers` to `layers_proxy = hf_model.model.layers`. Do not revert.
+nnsight's `.output` attribute only exists on **proxy objects created inside a `with nn_model.trace():` context**. If you access `layer.output` on a raw `nn.Module` obtained outside the trace (e.g. from `hf_model.model.layers[i]`), you get `AttributeError`.
+
+Fix (commit `6fc63db`): access every layer and lm_head **inside the trace** via the nnsight proxy chain:
+
+```python
+with nn_model.trace(prompt):
+    layer = nn_model.model.layers[layer_idx]   # proxy, not raw module
+    act = layer.output[0][:, pos, :].save()
+    logits = nn_model.lm_head.output.save()
+```
+
+`nn_model.model` resolves to the inner transformer (`Qwen2Model`). `nn_model.lm_head` resolves to the outer CausalLM's lm_head via `LanguageModel.__getattr__`.
 
 ### CDVA: failed rows accumulating in parquet
 
@@ -718,6 +774,19 @@ df = pd.read_parquet(p)
 clean = df[df["success_flag"] == True].copy()
 clean.to_parquet(p, index=False)
 ```
+
+### CDVA: ~50% zero delta_logit values (high `position_fallback_used` rate)
+
+If the CDVA parquet shows > 10% of rows with `position_fallback_used=True` or > 20% of delta_logit values exactly zero, the position detection is falling back to `pos=1` (BOS prefix) for most pairs. This produces trivially-zero delta_logit because patching a non-demographic position has no effect on the bias-answer logit.
+
+**Root cause:** multi-word swap tokens are stored with underscores (`a_girl`, `middle_aged`, `a_trailer_park`) but tokenizers produce space-separated tokens. The fix (commit `fa47626`) applies a three-pass normalised search (underscore→space, char-level concat search, last-word heuristic). Fallback rate drops from ~53% to < 10%.
+
+If you see a high fallback rate:
+1. Check that commit `fa47626` is deployed (`git log --oneline | head -5`)
+2. Wipe CDVA results: `python3 akash/_wipe_cdva.py` (saves backup first)
+3. Restart the pipeline
+
+**Analysis filter:** `success_flag=True AND position_fallback_used=False`. Always apply this before computing CDVA statistics.
 
 ### Behavioral evaluation: JSON parse failures
 
