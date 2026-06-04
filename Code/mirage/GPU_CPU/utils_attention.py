@@ -107,6 +107,11 @@ def _ensure_hooked_transformer(model: Any, tokenizer: Any) -> Any:
         device=str(device),
     )
     tl_model.eval()
+    # Explicitly move ALL parameters and buffers to the target device.
+    # Some architectures (e.g. Gemma-2, Phi-3) leave certain buffers on CPU
+    # after from_pretrained() even when move_to_device=True; this guarantees
+    # a homogeneous device and prevents "found at least two devices" errors.
+    tl_model = tl_model.to(device)
 
     _TL_MODEL_CACHE[hf_id] = tl_model
     logger.info("HookedTransformer for '%s' cached (device=%s).", hf_id, device)
@@ -168,7 +173,9 @@ def patch_activation_transformer_lens(
 
         def make_hook(act: "torch.Tensor") -> Any:
             def hook_fn(value: "torch.Tensor", hook: Any) -> "torch.Tensor":
-                value[0, position_b, :] = act
+                # Move cached activation to the same device as the hook target;
+                # guards against residual CPU tensors in any architecture.
+                value[0, position_b, :] = act.to(value.device)
                 return value
             return hook_fn
 
