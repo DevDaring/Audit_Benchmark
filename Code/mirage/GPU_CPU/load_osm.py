@@ -206,7 +206,7 @@ def load_model(model_cfg: dict, force_reload: bool = False) -> tuple[Any, Any]:
         token=HUGGINGFACE_TOKEN,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
-        device_map="auto",
+        device_map={"": 0},
         trust_remote_code=True,
     )
     model.eval()
