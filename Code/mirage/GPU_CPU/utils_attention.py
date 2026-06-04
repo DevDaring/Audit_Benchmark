@@ -61,12 +61,27 @@ def _ensure_hooked_transformer(model: Any, tokenizer: Any) -> Any:
     Return a HookedTransformer wrapping the given model.
 
     If `model` is already a HookedTransformer, return it unchanged.
-    Otherwise create one from the HF model in-place (weights are shared
-    via `hf_model=` parameter -- no extra VRAM copy).
+    Otherwise create one from the HF model.  The result is cached by HF ID so
+    conversion happens at most once per process.
 
-    The result is cached by model HF ID so conversion happens once per
-    process.  fold_ln / center_writing_weights are disabled so logits
-    match the HF model exactly (required for valid delta_logit comparisons).
+    fold_ln / center_writing_weights are disabled so logits match the HF model
+    exactly (required for valid delta_logit comparisons).
+
+    Device strategy
+    ---------------
+    Some architectures (Gemma-2, Phi-3/4, …) initialise certain internal
+    buffers on CPU inside HookedTransformer.from_pretrained(), even when the
+    supplied hf_model lives on GPU.  Any tensor operation inside from_pretrained
+    that touches one of these CPU buffers alongside a GPU parameter raises
+    "Expected all tensors to be on the same device" — **before** we can call
+    .to(device) — so the cache is never populated and every call re-attempts
+    the conversion.
+
+    Fix: temporarily move the HF model to CPU so that ALL of TL's initialisation
+    tensors are consistently on CPU.  After from_pretrained() returns successfully
+    we (a) restore the HF model to the original device, (b) move the TL model to
+    the original device, (c) deep-scan all sub-module attributes for any stray CPU
+    tensors that .to() misses (non-registered plain-attribute tensors).
     """
     try:
         import transformer_lens  # type: ignore
@@ -89,32 +104,44 @@ def _ensure_hooked_transformer(model: Any, tokenizer: Any) -> Any:
         "Converting HF model '%s' to HookedTransformer for CDVA patching ...", hf_id
     )
 
-    device = next(model.parameters()).device
+    target_device = next(model.parameters()).device
     dtype = next(model.parameters()).dtype
 
-    tl_model = transformer_lens.HookedTransformer.from_pretrained(
-        hf_id,
-        hf_model=model,
-        dtype=dtype,
-        # Preserve raw HF weights -- no folding or centering.
-        # Folding LayerNorm into preceding weights changes the numeric scale,
-        # making delta_logit values incomparable across patched/unpatched runs.
-        fold_ln=False,
-        center_writing_weights=False,
-        center_unembed=False,
-        # Respect the HUGGINGFACE_TOKEN already used when loading the HF model
-        move_to_device=True,
-        device=str(device),
-    )
+    # Step 1 — move HF model to CPU so TL init is all-CPU (no device mismatch).
+    logger.debug("Temporarily moving HF model to CPU for TL conversion ...")
+    model.cpu()
+    try:
+        tl_model = transformer_lens.HookedTransformer.from_pretrained(
+            hf_id,
+            hf_model=model,
+            dtype=dtype,
+            fold_ln=False,
+            center_writing_weights=False,
+            center_unembed=False,
+        )
+    finally:
+        # Step 2 — always restore HF model to GPU, even if from_pretrained fails.
+        logger.debug("Restoring HF model to %s ...", target_device)
+        model.to(target_device)
+
     tl_model.eval()
-    # Explicitly move ALL parameters and buffers to the target device.
-    # Some architectures (e.g. Gemma-2, Phi-3) leave certain buffers on CPU
-    # after from_pretrained() even when move_to_device=True; this guarantees
-    # a homogeneous device and prevents "found at least two devices" errors.
-    tl_model = tl_model.to(device)
+
+    # Step 3 — move TL model to target device.
+    tl_model = tl_model.to(target_device)
+
+    # Step 4 — deep scan: relocate any non-registered plain-attribute tensors
+    # that .to() does not reach (e.g. Gemma-2 RoPE sin/cos tables).
+    for _module in tl_model.modules():
+        for _attr, _val in list(vars(_module).items()):
+            if isinstance(_val, torch.Tensor) and _val.device != target_device:
+                logger.debug(
+                    "Relocating stray CPU tensor %s.%s to %s",
+                    type(_module).__name__, _attr, target_device,
+                )
+                setattr(_module, _attr, _val.to(target_device))
 
     _TL_MODEL_CACHE[hf_id] = tl_model
-    logger.info("HookedTransformer for '%s' cached (device=%s).", hf_id, device)
+    logger.info("HookedTransformer for '%s' cached (device=%s).", hf_id, target_device)
     return tl_model
 
 
