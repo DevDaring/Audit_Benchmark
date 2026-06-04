@@ -316,57 +316,80 @@ def patch_activation_nnsight(
     Replaces residual stream at (layer, position_b) in prompt_B with the
     cached residual at (layer, position_a) from prompt_A, for every layer.
 
-    Architecture note:
-      HF CausalLM classes (Qwen2, Phi3/4, Llama) nest their decoder layers
-      at .model.layers inside the outer CausalLM wrapper; the lm_head lives
-      at the outer level.  We detect this dynamically via _nnsight_layer_proxies
-      to avoid hard-coding per-model paths.
+    Architecture note
+    -----------------
+    nnsight's `LanguageModel.model` property resolves to the *inner* transformer
+    (e.g. `Qwen2Model` for `Qwen2ForCausalLM`), so the correct layer access path
+    inside a trace is `nn_model.model.layers[i]`.  Accessing layers via raw HF
+    module references (`hf_model.model.layers[i]`) gives a plain `nn.Module`
+    object; plain modules do NOT have a `.output` attribute — that only exists on
+    nnsight proxy objects returned inside a trace context.
 
-    nnsight note:
-      After a trace context exits, saved proxies are resolved — their tensor
-      value is accessible via `.value`.  When assigning a saved activation
-      inside a *second* trace context, we must pass `.value` explicitly;
-      passing the proxy object itself raises RuntimeError.
+    Practical rule: every `layer.output` or `lm_head.output` access MUST happen
+    inside a `with nn_model.trace(...)` block, accessed through `nn_model.*`.
+
+    nnsight proxy note
+    ------------------
+    After a trace context exits, saved proxies are resolved.  Their tensor value
+    is accessible via `.value`.  When assigning a saved activation inside a
+    *second* trace context, pass `.value` explicitly; passing the proxy object
+    itself raises `RuntimeError`.
 
     Returns
     -------
     float
-        delta_logit
+        delta_logit = logit_patched(bias_answer) − logit_original(bias_answer)
     """
     import torch
 
     nn_model = _ensure_nnsight_model(model, tokenizer)
-    layers_proxy, lm_head_proxy = _nnsight_layer_proxies(nn_model, model)
+
+    # Determine layer count from the real HF model (not the nnsight proxy).
+    inner = getattr(model, "model", None)
+    if inner is not None and hasattr(inner, "layers"):
+        n_layers = len(inner.layers)       # Shape B: Qwen2ForCausalLM, Phi3ForCausalLM
+        _shape_b = True
+    elif hasattr(model, "layers"):
+        n_layers = len(model.layers)       # Shape A: top-level decoder (rare)
+        _shape_b = False
+    else:
+        raise AttributeError(
+            f"Cannot determine n_layers for {type(model).__name__}. "
+            "Expected .model.layers or .layers."
+        )
 
     # ------------------------------------------------------------------
     # Pass 1: collect residual activations from prompt_A
+    # Layer accesses happen INSIDE the trace through nnsight proxy chain.
     # ------------------------------------------------------------------
     cache_a_proxies: dict[int, Any] = {}
     with nn_model.trace(prompt_a):
-        for layer_idx, layer in enumerate(layers_proxy):
+        for layer_idx in range(n_layers):
+            # Proxy chain inside trace: nn_model.model = inner transformer proxy
+            layer = nn_model.model.layers[layer_idx] if _shape_b else nn_model.layers[layer_idx]
             cache_a_proxies[layer_idx] = layer.output[0][:, position_a, :].save()
 
-    # Resolve .value OUTSIDE the trace so we have concrete tensors
+    # Resolve .value OUTSIDE the trace so we have concrete tensors.
     cache_a_vals: dict[int, "torch.Tensor"] = {
         idx: proxy.value.clone() for idx, proxy in cache_a_proxies.items()
     }
 
     # ------------------------------------------------------------------
     # Pass 2: patched forward on prompt_B (inject cache_a_vals)
+    # lm_head lives on the outer CausalLM; nn_model.lm_head proxies it.
     # ------------------------------------------------------------------
     with nn_model.trace(prompt_b):
-        for layer_idx, layer in enumerate(layers_proxy):
+        for layer_idx in range(n_layers):
+            layer = nn_model.model.layers[layer_idx] if _shape_b else nn_model.layers[layer_idx]
             if layer_idx in cache_a_vals:
-                # Use the concrete tensor (.value already resolved) --
-                # NOT the proxy object, which is invalid in a new trace.
                 layer.output[0][:, position_b, :] = cache_a_vals[layer_idx]
-        patched_logits = lm_head_proxy.output.save()
+        patched_logits = nn_model.lm_head.output.save()
 
     # ------------------------------------------------------------------
     # Pass 3: unpatched forward on prompt_B (baseline)
     # ------------------------------------------------------------------
     with nn_model.trace(prompt_b):
-        original_logits = lm_head_proxy.output.save()
+        original_logits = nn_model.lm_head.output.save()
 
     bias_token_ids = tokenizer.encode(bias_answer, add_special_tokens=False)
     if not bias_token_ids:
