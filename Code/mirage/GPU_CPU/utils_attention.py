@@ -38,17 +38,72 @@ _TL_MODEL_CACHE: dict[str, Any] = {}
 
 def _get_token_position(tokenizer: Any, prompt: str, target_token: str) -> int | None:
     """
-    Find the position of the first occurrence of target_token in the
-    tokenised prompt using a deterministic, tokenizer-aware scan.
+    Find the token position of *target_token* inside *prompt*.
 
-    Returns the token index, or None if not found.
+    Swap tokens in the pentad dataset are stored with underscores
+    (e.g. ``a_girl``, ``middle_aged``, ``a_trailer_park``) but the actual
+    prompt text uses spaces.  The original single-pass substring search only
+    handled single-word tokens (``african``, ``man``, …); it returned None for
+    all multi-word tokens, causing ~53 % position-detection failures and
+    trivially-zero delta_logit values for those pairs.
+
+    Search strategy (applied in order, first match wins):
+
+    1. **Single-token match** — ``target_text`` (underscores replaced by spaces)
+       is a substring of one decoded token.  Handles single-word tokens and
+       tokens that the tokenizer keeps together.
+
+    2. **Full-phrase char-level search** — concatenate all individually-decoded
+       token strings into one string and look for ``target_text`` as a
+       character-level substring.  Map the match character-offset back to the
+       owning token index.  Handles multi-word phrases whose words are split
+       across consecutive tokens.
+
+    3. **Last-word fallback** — if the full phrase is not found (rare, e.g. due
+       to tokenizer-specific spacing), try each word of the phrase in reverse
+       order, skipping very short words (≤ 2 chars).  Returns the first
+       (leftmost) match.
+
+    Returns the token index (int), or ``None`` if all strategies fail.
     """
+    # Normalise: underscores → spaces, strip
+    target_text = target_token.lower().replace("_", " ").strip()
+
     tokens = tokenizer.encode(prompt, add_special_tokens=True)
     token_strs = [tokenizer.decode([t]) for t in tokens]
-    target_lower = target_token.lower()
+
+    # --- Strategy 1: single-token substring match ---
     for i, tok_str in enumerate(token_strs):
-        if target_lower in tok_str.lower():
+        if target_text in tok_str.lower():
             return i
+
+    # --- Strategy 2: char-level search on concatenated decoded string ---
+    # Individually-decoded tokens concatenate to the full prompt text for
+    # SentencePiece / tiktoken tokenizers (each word token carries its leading
+    # space as a prefix byte).
+    concat = "".join(tok_str.lower() for tok_str in token_strs)
+    char_pos = concat.find(target_text)
+    if char_pos != -1:
+        cumlen = 0
+        for i, tok_str in enumerate(token_strs):
+            cumlen += len(tok_str)
+            if cumlen > char_pos:
+                return i
+
+    # --- Strategy 3: last-word fallback ---
+    words = target_text.split()
+    # Try from the most-specific (rightmost) word; skip trivially short words.
+    for word in reversed(words):
+        if len(word) <= 2:
+            continue
+        char_pos = concat.find(word)
+        if char_pos != -1:
+            cumlen = 0
+            for i, tok_str in enumerate(token_strs):
+                cumlen += len(tok_str)
+                if cumlen > char_pos:
+                    return i
+
     return None
 
 
