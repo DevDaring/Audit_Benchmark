@@ -316,6 +316,69 @@ CDVA implements interventional discriminative validity via activation patching (
 
 **Frequency normalisation:** equivalence-set tokens have different unigram priors; CDVA applies frequency-controlled correction where configured.
 
+### 6.1 Patching library split
+
+| Model | Library | Reason |
+|---|---|---|
+| Llama-3.1-8B-Instruct | TransformerLens | Native TL support; HookedTransformer provides clean residual-stream hooks |
+| Gemma-2-2B-IT | TransformerLens | Same; TL has Gemma-2 support as of v2.11 |
+| Qwen-2.5-7B-Instruct | nnsight | TransformerLens does not cleanly support Qwen2 architecture |
+| Phi-4-mini-instruct | nnsight | TransformerLens does not cleanly support Phi-3/4 architecture |
+
+### 6.2 TransformerLens configuration rationale
+
+`HookedTransformer.from_pretrained` is called with:
+
+```python
+fold_ln=False
+center_writing_weights=False
+center_unembed=False
+```
+
+These are non-defaults and must not be changed. Folding LayerNorm into weight matrices or centering the unembedding projection changes the absolute logit scale, making `delta_logit` values numerically incomparable across patched and unpatched forward passes. The paper states this justification explicitly in §4.2.
+
+### 6.3 Device placement for TransformerLens (Gemma-2, Phi-3/4)
+
+`HookedTransformer.from_pretrained` with `hf_model=<GPU model>` can initialise certain architecture-specific buffers on CPU even when the supplied model is on GPU. For Gemma-2, this causes a `RuntimeError: Expected all tensors to be on the same device` inside `from_pretrained` — before the model cache line is reached — meaning every CDVA pair re-attempts conversion.
+
+**Fix (commit `0f7a1ba`):** `_ensure_hooked_transformer` in `GPU_CPU/utils_attention.py` temporarily moves the HF model to CPU before calling `from_pretrained`, then moves the resulting TL model to GPU. A deep scan of all sub-module attributes relocates any remaining non-registered CPU tensors that `.to(device)` misses.
+
+```python
+model.cpu()
+try:
+    tl_model = HookedTransformer.from_pretrained(hf_id, hf_model=model, ...)
+finally:
+    model.to(target_device)
+tl_model = tl_model.to(target_device)
+# deep scan for non-registered attrs
+for _module in tl_model.modules():
+    for _attr, _val in list(vars(_module).items()):
+        if isinstance(_val, torch.Tensor) and _val.device != target_device:
+            setattr(_module, _attr, _val.to(target_device))
+```
+
+### 6.4 nnsight layer proxy strategy
+
+`_nnsight_layer_proxies` in `GPU_CPU/utils_attention.py` returns actual HF module references (not nnsight proxy chains). Inside a `with nn_model.trace():` context, nnsight intercepts `.output` attribute access on real `nn.Module` objects that are part of the traced graph. Building proxy chains like `nn_model.model.model.layers` causes `AttributeError` because nnsight's `.model` property resolves to the inner model (e.g. `Qwen2Model`), which has no further `.model` attribute.
+
+```python
+# Correct (commit e2eab12):
+layers_proxy = hf_model.model.layers   # actual nn.ModuleList
+lm_head_proxy = hf_model.lm_head       # actual nn.Linear
+
+# Wrong (pre-fix):
+layers_proxy = nn_model.model.model.layers   # AttributeError: 'Qwen2Model' has no attr 'model'
+```
+
+### 6.5 Production CDVA statistics (June 2026)
+
+| Model | Pairs attempted | Successful | Notes |
+|---|---|---|---|
+| Llama-3.1-8B-Instruct | 5,960 | 5,960 (100%) | |
+| Qwen-2.5-7B-Instruct | 5,960 | 5,955 (99.92%) | 5 pairs of 1 seed excluded (nnsight trace on high-token-count prompt) |
+| Gemma-2-2B-IT | 5,960 | TBD | CPU-first TL fix applied |
+| Phi-4-mini-instruct | 5,960 | TBD | nnsight fix applied |
+
 ---
 
 ## 7. Benchmark Quality Metrics
@@ -383,6 +446,15 @@ Pre-registered methods in `CPU_Only/statistics.py`:
 
 All sampling uses `numpy.random.default_rng(seed=20260101)`. Seed manifest SHA-256 stored in `Dataset/seeds/pentad_manifest.json`.
 
+### 9.4 Production run hardware (June 2026)
+
+- **GPU:** NVIDIA A100 40 GB (GCP `a2-highgpu-1g`, zone `us-central1-f`)
+- **Loading:** Sequential (`MIRAGE_SEQUENTIAL_MODELS=1`), one model at a time
+- **Batch size:** 4 (`MIRAGE_EVAL_BATCH_SIZE=4`)
+- **Attention:** `flash_attention_2` for all OSM models
+- **TL version:** transformer_lens 2.18.0
+- **PyTorch:** 2.5.1+cu124
+
 ---
 
 ## 10. Repository Layout
@@ -445,7 +517,7 @@ mirage/
 | OS | Ubuntu 22.04/24.04 LTS, x86_64 |
 | Python | 3.10–3.12 |
 | CUDA | 12.4 |
-| GPU | NVIDIA A100 80 GB (production) or L4 24 GB (local) |
+| GPU | NVIDIA A100 80 GB (fastest) or A100 40 GB (auto sequential load) |
 | RAM | ≥ 32 GB (64 GiB on Akash) |
 
 Windows and macOS are not supported for GPU/CDVA (flash-attention-2 is Linux/x86_64 only).
@@ -469,6 +541,13 @@ Copy `.env.example` to `.env`. Required keys:
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY_2` | Slot d/e generation (parallel workers) |
 | `AWS_BEDROCK_KEY`, `GEMINI_API_KEY_*`, `MISTRAL_API_KEY*` | API model evaluation |
 | `OPENROUTER_API_KEY_*` | Fallback routing |
+
+Optional GPU tuning (auto-detected on A100 40 GB):
+
+| Variable | Purpose |
+|---|---|
+| `MIRAGE_SEQUENTIAL_MODELS` | `1` force one-model-at-a-time; `0` force simultaneous (80 GB) |
+| `MIRAGE_EVAL_BATCH_SIZE` | Override inference batch size (default 4 sequential, 8 simultaneous) |
 
 **.env is git-ignored. Never commit real keys.**
 
@@ -568,6 +647,7 @@ Production GPU runs use Akash Network with persistent `/data` storage.
 
 | Doc | Content |
 |---|---|
+| `Help/GCP_GPU_Setup.md` | GCP A100 40 GB — VM create, install, GPU pipeline |
 | `Help/Akash_VM_Setup.md` | Full deployment, markers, validation gates |
 | `Help/VM_progress.md` | Stage markers, monitoring, ETA, safe resume |
 | `akash/_full_pipeline.py` | On-VM orchestrator |
@@ -615,6 +695,52 @@ Match wheel to torch/CUDA/Python: https://github.com/Dao-AILab/flash-attention/r
 ### API rate limits
 
 DeepSeek slot d/e uses 2 parallel workers with per-key fallback and 5 retries. Add `DEEPSEEK_API_KEY_2` to `.env`.
+
+### CDVA: "Expected all tensors to be on the same device" (Gemma-2, Phi-3/4)
+
+This error inside `HookedTransformer.from_pretrained` means architecture-specific buffers are initialised on CPU while the model is on GPU. The error happens **before** the model-cache line, so every CDVA pair re-attempts conversion (visible as repeated "Converting HF model..." log lines).
+
+Fix: `GPU_CPU/utils_attention.py` `_ensure_hooked_transformer` moves the HF model to CPU before calling `from_pretrained`, then moves TL model back to GPU with a deep attribute scan. This is implemented in commit `0f7a1ba`. Do not revert the `move_to_device` / `device` arguments — they are intentionally absent.
+
+### CDVA: "'Qwen2Model' object has no attribute 'model'" (Qwen, Phi)
+
+This means `_nnsight_layer_proxies` was building proxy chains rather than returning real HF module references. The fix in commit `e2eab12` changes `layers_proxy = nn_model.model.model.layers` to `layers_proxy = hf_model.model.layers`. Do not revert.
+
+### CDVA: failed rows accumulating in parquet
+
+If a model's CDVA rows are all `success_flag=False`, remove them before restarting so the resume logic re-runs them cleanly:
+
+```python
+import pandas as pd
+p = "results/cdva_results.parquet"
+df = pd.read_parquet(p)
+# Keep only success rows for clean models; remove all rows for the failing model
+clean = df[df["success_flag"] == True].copy()
+clean.to_parquet(p, index=False)
+```
+
+### Behavioral evaluation: JSON parse failures
+
+Instruct models occasionally produce non-JSON output. These rows are saved with `success_flag=False` and excluded from MIRAGE-B scoring automatically. Observed rates in production:
+
+| Model | Parse failure rate |
+|---|---|
+| Llama-3.1-8B-Instruct | 0% |
+| Qwen-2.5-7B-Instruct | ~1.7% |
+| Gemma-2-2B-IT | ~0.01% |
+
+These are not pipeline errors. Report them as a transparency note in §5.3 of the paper.
+
+### `MIRAGE_SEQUENTIAL_MODELS` not taking effect
+
+Always export this variable **after** sourcing `.env`:
+
+```bash
+set -a && source .env && set +a
+export MIRAGE_SEQUENTIAL_MODELS=1 MIRAGE_EVAL_BATCH_SIZE=4
+```
+
+If `.env` defines `MIRAGE_SEQUENTIAL_MODELS=0`, the post-source export overrides it.
 
 ---
 
@@ -789,6 +915,7 @@ Together, `leaderboard.parquet` (which FM dominates per benchmark) and `validity
 | `Code/MIRAGE_MASTER_PROMPT.md` | Full project specification |
 | `Submission/MIRAGE_PAPER_PROMPT_TCSS.md` | Paper generation instructions (IEEE TCSS) |
 | `Help/Akash_VM_Setup.md` | Akash deployment field guide |
+| `Help/GCP_GPU_Setup.md` | GCP A100 40 GB setup and package install |
 | `Help/VM_progress.md` | Pipeline progress and ETA |
 | `Help/Expert_Suggestion.md` | Expert review notes |
 | `Code/mirage/DESIGN_DECISIONS.md` | Implementation judgment calls |

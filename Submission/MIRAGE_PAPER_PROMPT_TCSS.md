@@ -139,15 +139,15 @@ End the section with a paragraph titled "Position of this Work" that has a table
 
 **Section 4 — Causal Discriminative Validity Audit (CDVA).** The methodological wedge. Subsections:
 - 4.1 Interventional Discriminative Validity (the Pearl/Meng framing; formal definition: a benchmark item exhibits valid measurement iff output is invariant under do(demographic_token := alternative))
-- 4.2 Operationalization via Activation Patching (the patching procedure, with TransformerLens and nnsight implementations)
+- 4.2 Operationalization via Activation Patching (the patching procedure, with TransformerLens and nnsight implementations). **Implementation note for the writer:** `HookedTransformer.from_pretrained` is called with `fold_ln=False`, `center_writing_weights=False`, `center_unembed=False`. These flags are not defaults — they must be stated and justified. The justification is: folding LayerNorm into preceding weight matrices or centering the unembedding projection changes the absolute scale of logits, making `delta_logit` values numerically incomparable across patched and unpatched runs. The paper must include one sentence in §4.2 to pre-empt reviewer 2 asking "why not use default TL settings?"
 - 4.3 Frequency-Normalized CDVA Score (the per-token unigram correction)
 - 4.4 Threshold Calibration (τ on a held-out dev split of 50 seeds, with documented selection procedure)
 - 4.5 MIRAGE-Full Composite (CDVA + behavioral)
 
 **Section 5 — Experimental Setup.** Subsections:
 - 5.1 Source Benchmarks and Seed Selection (stratified sampling, 270+200+200+200=870 seeds)
-- 5.2 Models Evaluated (4 OSM + 4 API; one table with HF IDs, parameter counts, instruction-tuning status, mechanism-library used)
-- 5.3 Generation Settings (constrained JSON decoding, temperature, sampling, retry/fallback policy)
+- 5.2 Models Evaluated (4 OSM + 4 API; one table with HF IDs, parameter counts, instruction-tuning status, mechanism-library used). **CDVA library column is mandatory in Table:** Llama-3.1-8B and Gemma-2-2B use TransformerLens; Qwen-2.5-7B and Phi-4-mini use nnsight. This split is because TransformerLens does not yet support Qwen2/Phi3 architectures cleanly. State this in a table footnote or a one-sentence aside.
+- 5.3 Generation Settings (constrained JSON decoding, temperature, sampling, retry/fallback policy). **Note for the writer:** observed JSON parse failure rates from the production run are: Qwen-2.5-7B-Instruct 1.7% (174/10132 behavioral rows), Gemma-2-2B-IT 0.01% (1/10132). These rows carry `success_flag=False` and are excluded from MIRAGE-B scoring automatically. Report these rates in §5.3 as a transparency note — do not hide them. They reflect natural variation in instruct-model adherence to constrained formats, not a pipeline error.
 - 5.4 Statistical Methodology (bootstrap CIs at 5000 resamples, McNemar's test for paired binary, Holm-Bonferroni for 32 confirmatory tests, BH-FDR for exploratory)
 
 **Section 6 — Results.** This section is dense. Lead with the headline result, then drill down. Subsections:
@@ -169,6 +169,7 @@ End the section with a paragraph titled "Position of this Work" that has a table
 - Limitations 1: English-only evaluation. Multilingual extension is published follow-on work.
 - Limitations 2: Mid-tier OSM (3.8B–9B); frontier models accessed only via API for behavioral audit.
 - Limitations 3: Pentad slot (d) and (e) generated with author-only verification; no inter-annotator agreement.
+- Limitations 4 (CDVA coverage): CDVA is computed for 4 OSM models only. For Qwen-2.5-7B-Instruct, 5 of 5960 CDVA pairs (0.08%, all from a single religion-category seed) failed due to a nnsight trace anomaly on a high-token-count prompt; those pairs are excluded from CDVA analysis for that model. This exclusion has no material effect on any aggregate statistic. State the exact count in a parenthetical, not in the main text.
 - Ethical considerations: Dual-use risk (audit techniques can be inverted to construct adversarial CoT attacks), data sensitivity in source benchmarks, accessibility of the audit toolkit for under-resourced researchers and institutions.
 
 **Section 9 — Conclusion.** Three paragraphs, no new content. Restate contributions; preview multilingual v2; final sentence on the social-systems implication.
@@ -310,6 +311,28 @@ Every quantitative claim in the paper must be sourced from a file in the project
 If any of these files are absent at write time, mark the corresponding paragraph with `\todo{populate with values from <file>}` and continue. Do not block the entire paper for one missing file.
 
 Statistics text must always carry: point estimate, 95% bootstrap CI in square brackets, n, and (when relevant) effect size. Format example: "Llama-3.1-8B passed BBQ at 78.4% [76.1, 80.6] (n = 270), Cohen's h vs MIRAGE-Full = 0.84."
+
+### 6.1 Known data quality facts from the production run (June 2026)
+
+These are facts established from the production GPU run and must be cited accurately in the paper:
+
+| Stat | Value | Where to use |
+|---|---|---|
+| Behavioral rows (OSM, total) | 40,528 (4 × 10,132) | §5.2 table footnote |
+| Llama-3.1-8B behavioral parse failures | 0 / 10,132 | §5.3 |
+| Qwen-2.5-7B behavioral parse failures | 174 / 10,132 (1.7%) | §5.3 |
+| Gemma-2-2B behavioral parse failures | 1 / 10,132 (0.01%) | §5.3 |
+| Phi-4-mini behavioral parse failures | populate from `behavioral_results.parquet` | §5.3 |
+| CDVA pairs total (4 OSM × 596 seeds × 10 pairs) | 23,840 | §4.2 |
+| Llama CDVA: successful pairs | 5,960 / 5,960 (100%) | §6.4 |
+| Qwen CDVA: successful pairs | 5,955 / 5,960 (99.92%) | §6.4 footnote |
+| Gemma CDVA: successful pairs | populate from `cdva_results.parquet` | §6.4 |
+| Phi CDVA: successful pairs | populate from `cdva_results.parquet` | §6.4 |
+| A100 GPU | 40 GB VRAM, sequential model loading | §5.2 |
+| TransformerLens models | Llama-3.1-8B-Instruct, Gemma-2-2B-IT | §4.2, Table 5.2 |
+| nnsight models | Qwen-2.5-7B-Instruct, Phi-4-mini-instruct | §4.2, Table 5.2 |
+
+The 5 excluded Qwen CDVA pairs (seed `stereo_fad0127e`, religion category, pairs: bible_2/muslim, bible_2/sikh, hindu/muslim, hindu/sikh, muslim/sikh) are excluded from aggregate statistics and noted in a parenthetical in §8 Limitations.
 
 ---
 

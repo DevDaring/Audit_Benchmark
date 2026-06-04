@@ -1,34 +1,43 @@
-# VM Progress — MIRAGE Akash Pipeline
+# VM Progress — MIRAGE GCP GPU Pipeline
 
-Reference for monitoring, stage markers, ETAs, and safe resume on the production Akash GPU VM.
+Reference for monitoring, stage markers, ETAs, and safe resume on the production GCP A100 VM.
 
-See also: **`Help/Akash_VM_Setup.md`** (deployment and troubleshooting) and **`Code/mirage/README.md`** (local dataset build).
+See also: **`Help/GCP_GPU_Setup.md`** (VM create, install, package setup) and **`Code/mirage/README.md`** (full research documentation).
 
 ---
 
-## Current Production VM
-
-Connection details live in `akash/vm_ssh.txt` (gitignored). Typical layout:
+## Current Production VM (GCP A100 40 GB)
 
 | Field | Value |
 |---|---|
-| SSH | `ssh root@<provider-host> -p <port>` |
-| Password | `MirageVM2026!` |
-| Repo | `/data/Audit_Benchmark` |
-| Venv | `/data/venv` |
-| HF cache | `/data/hf_cache` |
-| Markers | `/data/state/` |
-| Logs | `/data/logs/` |
+| Project | `solar-nation-470113-r4` |
+| Instance name | `audit` |
+| Zone | `us-central1-f` |
+| SSH key | `C:\Users\Debz\.ssh\id_rsa_gcp` |
+| Username | `koushikdeb2009` |
+| Repo | `/home/koushikdeb2009/Audit_Benchmark` |
+| HF cache | `/home/koushikdeb2009/hf_cache` |
+| State dir | `/home/koushikdeb2009/mirage-state` |
+| Log | `~/mirage_prod.log` |
+
+Connect:
+
+```bash
+gcloud compute ssh koushikdeb2009@audit \
+  --zone=us-central1-f \
+  --project=solar-nation-470113-r4 \
+  --ssh-key-file=C:\Users\Debz\.ssh\id_rsa_gcp
+```
 
 ---
 
 ## Pipeline Stages
 
 ```
-INSTALL_OK        → akash/install.sh (venv + torch + flash_attn)
-PREDOWNLOAD_OK    → akash/predownload_models.py (4 OSM models, no GPU)
 DATASET_OK        → pentad validated (7,152 rows, assert_production_ready)
-GPU_PIPELINE_OK   → behavioral + CDVA + tau calibration
+BEHAVIORAL_OK     → 4 models × 10,132 behavioral rows each
+CDVA_OK           → 4 models × 5,960 CDVA pairs each
+TAU_CALIB_OK      → tau_calibration.json written
 PIPELINE_COMPLETE → final sentinel
 ```
 
@@ -36,174 +45,148 @@ PIPELINE_COMPLETE → final sentinel
 
 | Stage | What runs | Expected output |
 |---|---|---|
-| Install | `install.sh` | `/data/venv`, `INSTALL_OK` |
-| Pre-download | `predownload_models.py` | ~42 GB in `/data/hf_cache`, `PREDOWNLOAD_OK` |
-| Dataset — det | `patch_slot_b_only.py` or skip if valid | 4,172 rows (a/b/c only) |
-| Dataset — API | `regenerate_api_slots.py` | +2,980 rows (d/e), total 7,152 |
-| Dataset — gate | `assert_production_ready()` + manifest | `DATASET_OK`, `pentad_manifest.json` |
-| GPU Step 1 | Load 4 OSM models | ~42 GB VRAM |
-| GPU Step 2 | Behavioral eval | `behavioral_results.parquet` |
-| GPU Step 3 | CDVA patching | `cdva_results.parquet` |
+| Pre-download | Models cached in hf_cache | ~42 GB in hf_cache |
+| Dataset | `run_dataset.py` + `regenerate_api_slots.py` | 7,152 rows, assert_production_ready passes |
+| GPU Step 1 | Load 1 OSM model at a time (`MIRAGE_SEQUENTIAL_MODELS=1`) | ~14–16 GB VRAM per model |
+| GPU Step 2 | Behavioral eval (det + 5 variance passes per model) | `behavioral_results.parquet` |
+| GPU Step 3 | CDVA patching per model | `cdva_results.parquet` |
 | GPU Step 4 | Tau calibration | `tau_calibration.json` |
 
-**Production audit set:** N = **596** seeds × 12 slots = **7,152** rows (BBQ 254, CrowS-Pairs 181, StereoSet 161; 22 StereoSet seeds excluded).
+**Production audit set:** N = **596** seeds × 12 slots = **7,152** rows  
+(BBQ 254, CrowS-Pairs 181, StereoSet 161; 22 StereoSet seeds excluded)
 
 ---
 
-## Local Monitoring Scripts
+## Current Run Status (last updated: Jun 4, 2026)
 
-Run from repo root:
+| Model | Behavioral | CDVA | Notes |
+|---|---|---|---|
+| llama-3.1-8b-instruct | DONE (10,132 rows, 0 failures) | DONE (5,960/5,960 success) | TransformerLens |
+| qwen2.5-7b-instruct | DONE (10,132 rows, 174 parse fails = 1.7%) | DONE (5,955/5,960 — 5 pairs excluded) | nnsight |
+| gemma-2-2b-it | DONE (10,132 rows, 1 parse fail) | IN PROGRESS (~125/596 seeds as of 03:02 UTC) | TransformerLens |
+| phi-4-mini-instruct | NOT STARTED | NOT STARTED | nnsight |
 
-```bash
-# Full snapshot: markers, pentad rows, manifest, production gate, GPU, logs
-python akash/_vm_progress.py
+**ETA to completion:** ~2.5 hours from 03:08 UTC Jun 4 = ~05:30 UTC (11:00 AM IST)
 
-# Health audit with ETA (recommended)
-python akash/_pipeline_health.py
+---
 
-# DeepSeek regen checkpoint progress
-python akash/_regen_progress.py
+## Known Bugs Fixed in This Run
 
-# Poll until PIPELINE_COMPLETE
-python akash/_monitor.py
-```
-
-### What `_vm_progress.py` checks
-
-1. Marker files in `/data/state/`
-2. Pentad row count and slot distribution
-3. `pentad_manifest.json`
-4. `assert_production_ready()` pass/fail
-5. Result parquets in `Code/mirage/results/`
-6. Latest pipeline log tail
-7. Supervisor / regen process list
-8. `nvidia-smi` GPU utilisation
+| Bug | Symptom | Fix (commit) |
+|---|---|---|
+| Gemma-2 CDVA device mismatch | `HookedTransformer.from_pretrained` raises "Expected all tensors on same device" before cache line is reached; every pair re-attempts conversion | Temporarily move HF model to CPU before TL conversion, then move TL model + deep-scan non-registered attributes to GPU. (commit `0f7a1ba`) |
+| Qwen/Phi CDVA AttributeError | `_nnsight_layer_proxies` built proxy chains (`nn_model.model.model.layers`) causing `'Qwen2Model' object has no attribute 'model'` | Changed to use actual HF module references: `inner.layers` and `hf_model.lm_head`. (commit `e2eab12`) |
+| Behavioral resume slow | `_completed_keys_from` used `iterrows()` on up to 171k rows — 5–15 min between models | Vectorised with `isin` and set comprehensions; resume overhead now < 5 s. |
+| Pentad WinoBias contamination | `ValueError: WinoBias rows in pentad — must be held out` | `pentad_generator.py` now auto-excludes WinoBias seeds. |
 
 ---
 
 ## On-VM Quick Checks
 
 ```bash
-# Markers
-ls -la /data/state/
-for f in INSTALL_OK PREDOWNLOAD_OK DATASET_OK GPU_PIPELINE_OK PIPELINE_COMPLETE; do
-  [ -f /data/state/$f ] && echo OK:$f || echo MISSING:$f
-done
+# Process
+pgrep -fa run_gpu_pipeline
 
-# Pentad shape (expect 7152 rows when complete)
-/data/venv/bin/python -c "
+# GPU
+nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader
+
+# Log tail
+tail -20 ~/mirage_prod.log
+
+# Behavioral rows per model
+python3 -c "
 import pandas as pd
-df = pd.read_parquet('/data/Audit_Benchmark/Code/mirage/Dataset/seeds/pentad_dataset.parquet')
-print('rows', len(df), 'seeds', df.seed_id.nunique())
-print(df.slot.value_counts().to_dict())
+b = pd.read_parquet('Code/mirage/results/behavioral_results.parquet')
+for m, g in b.groupby('model_name'):
+    ok = int(g.success_flag.sum()); fail = int((~g.success_flag).sum())
+    print(m, 'rows=%d ok=%d fail=%d' % (len(g), ok, fail))
 "
 
-# Production gate
-cd /data/Audit_Benchmark/Code/mirage && /data/venv/bin/python -c "
+# CDVA rows per model
+python3 -c "
 import pandas as pd
-from Dataset.validate_pentad import assert_production_ready, validate_slot_b_grammar
-df = pd.read_parquet('Dataset/seeds/pentad_dataset.parquet')
-validate_slot_b_grammar(df)
-assert_production_ready(df)
-print('PRODUCTION READY')
+c = pd.read_parquet('Code/mirage/results/cdva_results.parquet')
+for m, g in c.groupby('model_name'):
+    ok = int(g.success_flag.sum()); fail = int((~g.success_flag).sum())
+    print(m, 'rows=%d ok=%d fail=%d' % (len(g), ok, fail))
 "
-
-# Active processes
-pgrep -af regenerate_api_slots
-pgrep -af supervise_pipeline
-pgrep -af run_gpu_pipeline
-pgrep -af autonomous_guard
-
-# Logs
-tail -20 /data/logs/pipeline_attempt_1.log
-tail -20 /data/Audit_Benchmark/LOG/regen_api_slots.log
-tail -5 /data/logs/watchdog.log
 ```
 
 ---
 
-## Expected Runtime & ETA
-
-| Phase | Duration |
-|---|---|
-| Install (first time) | ~2–3 min |
-| Pre-download (~42 GB) | ~5–10 min |
-| DeepSeek regen (596 seeds, 2 parallel workers) | ~30–90 min |
-| GPU behavioral (4 models × 7,152 prompts) | ~4–5 hr |
-| CDVA + tau calibration | ~1–2 hr |
-| **Total after dataset ready** | **~6 hr** |
-
-During regen, checkpoint files report progress:
-
-- `Dataset/seeds/context_shift_checkpoint.json` — slot-d (596 seeds)
-- `Dataset/seeds/cot_attack_checkpoint.json` — slot-e (596 seeds)
-
-At ~50–60 seeds/min with two DeepSeek keys, slot-d takes ~10–15 min; slot-e ~15–20 min.
-
-During GPU behavioral, grep the log for throughput:
+## Start / Restart Pipeline
 
 ```bash
-grep "prompts done" /data/logs/pipeline_attempt_1.log | tail -5
+cd /home/koushikdeb2009/Audit_Benchmark/Code/mirage
+export HF_HUB_CACHE=/home/koushikdeb2009/hf_cache \
+       HF_HOME=/home/koushikdeb2009/hf_cache \
+       MIRAGE_SEQUENTIAL_MODELS=1 \
+       MIRAGE_EVAL_BATCH_SIZE=4 \
+       STATE_DIR=/home/koushikdeb2009/mirage-state
+set -a && source .env && set +a
+export HF_TOKEN=${HUGGINGFACE_TOKEN} MIRAGE_SEQUENTIAL_MODELS=1 MIRAGE_EVAL_BATCH_SIZE=4
+nohup python3 GPU_CPU/run_gpu_pipeline.py >> ~/mirage_prod.log 2>&1 &
+echo $!
 ```
 
-Observed rate on A100: ~147 prompts/min → ~6 hr for full GPU phase.
-
----
-
-## Autonomous Guard (On-VM)
-
-`akash/autonomous_guard.sh` runs on the VM during dataset rebuild:
-
-- Polls every 60 s while `regenerate_api_slots.py` is active
-- Restarts dead regen with `--keep-checkpoint`
-- On `assert_production_ready()` pass → writes validation state → starts `supervise_pipeline.sh`
-- Keeps supervisor **off** until the pentad is complete
-
-Start manually after deploying fixes:
-
-```bash
-nohup bash /data/Audit_Benchmark/akash/autonomous_guard.sh \
-  >> /data/logs/autonomous_guard.log 2>&1 &
-```
+`MIRAGE_SEQUENTIAL_MODELS=1` must be exported **after** sourcing `.env` to prevent `.env` overriding it.
 
 ---
 
 ## Safe Resume Rules
 
-| Pentad state | Action |
+| Situation | Action |
 |---|---|
-| Det valid (4,172 rows), d/e missing | Run `regenerate_api_slots.py --keep-checkpoint`; do **not** run `patch_det_slots.py` |
-| Slot-b grammar fails | `patch_slot_b_only.py` then regen if slot-a text changed |
-| Full pentad valid, GPU interrupted | Clear `GPU_PIPELINE_OK` + `PIPELINE_COMPLETE` only; restart supervisor |
-| Pentad SHA changed | Clear `DATASET_OK` + GPU markers; rebuild d/e |
+| CDVA parquet has failed rows for a model | Run cleanup script to remove failed rows for that model only; restart pipeline |
+| TL conversion fails for Gemma-2 | The CPU-first fix in `utils_attention.py` (commit `0f7a1ba`) resolves this |
+| nnsight AttributeError for Qwen/Phi | The HF module ref fix in `utils_attention.py` (commit `e2eab12`) resolves this |
+| Behavioral parquet has stale rows | Resume logic in `osm_behavioral.py` skips completed (prompt_id, model, sample_index) triples automatically |
+| Pipeline killed mid-CDVA | Restart without any cleanup — CDVA resume skips seeds whose (seed_id, model_name) are in the parquet with `success_flag=True` |
 
-**Always kill the supervisor before patching the pentad:**
+**Never** run two pipeline instances simultaneously on the same parquet files.
 
-```bash
-pkill -f supervise_pipeline
-pkill -f _full_pipeline
-```
+---
 
-**Never** start GPU on a det-only pentad (4,172 rows without d/e slots).
+## Expected Runtime (A100 40 GB, sequential loading)
+
+| Phase | Duration | Notes |
+|---|---|---|
+| Behavioral per model | ~35–50 min | 10,132 rows, batch=4, flash_attn |
+| CDVA per model (TransformerLens) | ~60 min | 596 seeds × 10 pairs; ~10 seeds/min |
+| CDVA per model (nnsight) | ~60 min | Qwen, Phi-4-mini |
+| Tau calibration | ~5 min | CPU-only |
+| **Full GPU phase (4 models)** | **~7–8 hr** | Sequential loading overhead included |
+
+TL conversion (CPU→GPU) for Gemma-2: ~20 s (one-time, cached thereafter).
+
+---
+
+## Post-Completion
+
+When pipeline finishes:
+
+1. Download `results/behavioral_results.parquet`, `results/cdva_results.parquet`, `results/tau_calibration.json`
+2. Download `Dataset/seeds/pentad_dataset.parquet` and `pentad_manifest.json`
+3. Run `CPU_Only/` scoring locally
+4. Run `CPU_Only/leaderboard.py` and `CPU_Only/validity_gap_table.py`
+5. Run `CPU_Only/predictive_validity.py`
+6. Stop the GCP instance to stop billing: `gcloud compute instances stop audit --zone=us-central1-f`
 
 ---
 
 ## Deploy Code Fixes to Running VM
 
 ```bash
-python akash/_deploy_hardened.py    # upload fixes + restart regen + start guard
-python akash/_upload_mirage_fixes.py # upload Code/mirage only
+# SCP a specific file
+gcloud compute scp "local/path/file.py" koushikdeb2009@audit:/remote/path/ \
+  --zone=us-central1-f --project=solar-nation-470113-r4 \
+  --ssh-key-file=C:\Users\Debz\.ssh\id_rsa_gcp
+
+# Pull latest from GitHub on VM
+gcloud compute ssh koushikdeb2009@audit --zone=us-central1-f \
+  --project=solar-nation-470113-r4 \
+  --ssh-key-file=C:\Users\Debz\.ssh\id_rsa_gcp \
+  --command "cd /home/koushikdeb2009/Audit_Benchmark && git pull"
 ```
 
-Git pull on the VM is **disabled by default** (`MIRAGE_GIT_PULL=0`). Set `MIRAGE_GIT_PULL=1` only when you intentionally want to sync from GitHub.
-
----
-
-## Post-Completion
-
-When `PIPELINE_COMPLETE` is set:
-
-1. Download `results/behavioral_results.parquet`, `cdva_results.parquet`, `tau_calibration.json`
-2. Download `Dataset/seeds/pentad_dataset.parquet` and `pentad_manifest.json`
-3. Run `CPU_Only/` scoring locally (see `Help/Akash_VM_Setup.md` §18)
-4. Close the Akash deployment to stop billing
+After updating code: clear `__pycache__` for changed modules, kill the running pipeline if it uses the old code, then restart.
