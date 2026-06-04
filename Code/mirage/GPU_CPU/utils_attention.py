@@ -247,18 +247,23 @@ def _nnsight_layer_proxies(nn_model: Any, hf_model: Any) -> tuple[Any, Any]:
     inner = getattr(hf_model, "model", None)
     if inner is not None and hasattr(inner, "layers"):
         # Shape B: Qwen2ForCausalLM, Phi3ForCausalLM, LlamaForCausalLM, …
-        layers_proxy = nn_model.model.model.layers
-        lm_head_proxy = nn_model.model.lm_head
+        # Use actual HF module references (not nnsight proxy chains).
+        # Inside a trace(), nnsight intercepts .output on real nn.Module objects
+        # that are part of the traced graph; proxy chains like nn_model.model.model.layers
+        # cause AttributeError because nnsight's .model property resolves to the inner
+        # model (e.g. Qwen2Model) which has no further .model attribute.
+        layers_proxy = inner.layers       # hf_model.model.layers  (nn.ModuleList)
+        lm_head_proxy = hf_model.lm_head  # hf_model.lm_head       (nn.Linear)
         logger.debug(
-            "nnsight layer path: .model.model.layers (inner model) "
+            "nnsight layer path: hf_model.model.layers (inner model) "
             "for %s", type(hf_model).__name__,
         )
     elif hasattr(hf_model, "layers"):
         # Shape A: direct .layers (some GPT-NeoX style models)
-        layers_proxy = nn_model.model.layers
-        lm_head_proxy = nn_model.model.lm_head
+        layers_proxy = hf_model.layers
+        lm_head_proxy = hf_model.lm_head
         logger.debug(
-            "nnsight layer path: .model.layers (top-level) "
+            "nnsight layer path: hf_model.layers (top-level) "
             "for %s", type(hf_model).__name__,
         )
     else:
