@@ -1,0 +1,126 @@
+{
+  "tau": 0.7643661499023438,
+  "total_pairs": 23840,
+  "total_seeds": 596,
+  "models": [
+    "gemma-2-2b-it",
+    "llama-3.1-8b-instruct",
+    "phi-4-mini-instruct",
+    "qwen2.5-7b-instruct"
+  ],
+  "commutativity_index": {
+    "llama-3.1-8b-instruct": 0.39429530201342283,
+    "qwen2.5-7b-instruct": 0.12248322147651007,
+    "gemma-2-2b-it": 0.5939597315436241,
+    "phi-4-mini-instruct": 0.3338926174496644
+  },
+  "distribution": {
+    "mean": 0.648035587400398,
+    "median": 0.375,
+    "std": 0.9774399200654809,
+    "skewness": 5.379734901606465,
+    "kurtosis": 52.939391217827655,
+    "zero_fraction": 0.06203859060402685,
+    "ks_exponential_test": {
+      "statistic": 0.09716752771456572,
+      "p_value": 3.233635201057313e-184
+    }
+  },
+  "asymmetry": {
+    "n_reciprocal_pairs": 0,
+    "mean_asymmetry": 0.0,
+    "max_asymmetry": 0.0
+  },
+  "per_axis": [
+    {
+      "demographic_axis": "age",
+      "n_pairs": 1920,
+      "mean_commutator": 0.5173689166704813,
+      "median_commutator": 0.25,
+      "std_commutator": 0.7890556028095282,
+      "max_commutator": 9.8125,
+      "frac_above_tau": 0.19375
+    },
+    {
+      "demographic_axis": "disability",
+      "n_pairs": 1960,
+      "mean_commutator": 0.5462190238796935,
+      "median_commutator": 0.314453125,
+      "std_commutator": 0.7137127854080506,
+      "max_commutator": 6.03125,
+      "frac_above_tau": 0.21173469387755103
+    },
+    {
+      "demographic_axis": "gender",
+      "n_pairs": 3640,
+      "mean_commutator": 0.7344386551406358,
+      "median_commutator": 0.4375,
+      "std_commutator": 1.1042174167648704,
+      "max_commutator": 23.0,
+      "frac_above_tau": 0.3027472527472527
+    },
+    {
+      "demographic_axis": "nationality",
+      "n_pairs": 1920,
+      "mean_commutator": 0.45408775806427004,
+      "median_commutator": 0.25,
+      "std_commutator": 0.5659795882036839,
+      "max_commutator": 4.6953125,
+      "frac_above_tau": 0.171875
+    },
+    {
+      "demographic_axis": "physical_appearance",
+      "n_pairs": 1920,
+      "mean_commutator": 0.5644848187764485,
+      "median_commutator": 0.335205078125,
+      "std_commutator": 0.7748650441745352,
+      "max_commutator": 8.75,
+      "frac_above_tau": 0.22552083333333334
+    },
+    {
+      "demographic_axis": "profession",
+      "n_pairs": 1080,
+      "mean_commutator": 0.5447482638888889,
+      "median_commutator": 0.375,
+      "std_commutator": 0.5740946285893215,
+      "max_commutator": 3.5625,
+      "frac_above_tau": 0.23055555555555557
+    },
+    {
+      "demographic_axis": "race",
+      "n_pairs": 3720,
+      "mean_commutator": 0.9007901242984239,
+      "median_commutator": 0.4375,
+      "std_commutator": 1.350087905645977,
+      "max_commutator": 13.1875,
+      "frac_above_tau": 0.3301075268817204
+    },
+    {
+      "demographic_axis": "religion",
+      "n_pairs": 3800,
+      "mean_commutator": 0.7492833448711195,
+      "median_commutator": 0.375,
+      "std_commutator": 1.1644559091488198,
+      "max_commutator": 14.21875,
+      "frac_above_tau": 0.2773684210526316
+    },
+    {
+      "demographic_axis": "sexual_orientation",
+      "n_pairs": 1880,
+      "mean_commutator": 0.5008715487541037,
+      "median_commutator": 0.28125,
+      "std_commutator": 0.6368454458078499,
+      "max_commutator": 5.7265625,
+      "frac_above_tau": 0.2
+    },
+    {
+      "demographic_axis": "socioeconomic",
+      "n_pairs": 2000,
+      "mean_commutator": 0.5140160675048828,
+      "median_commutator": 0.3125,
+      "std_commutator": 0.6301880839170426,
+      "max_commutator": 6.0,
+      "frac_above_tau": 0.2005
+    }
+  ]
+}
