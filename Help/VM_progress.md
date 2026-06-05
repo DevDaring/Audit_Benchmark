@@ -57,27 +57,41 @@ PIPELINE_COMPLETE → final sentinel
 
 ---
 
-## Current Run Status (last updated: Jun 4, 2026 — 11:21 IST)
+## Final Run Status — COMPLETED (Jun 5, 2026 — 09:15 IST)
 
-**Active pipeline PID 29226** — CDVA rerun with position-detection fix (all 4 models, behavioral already complete for Llama/Qwen/Gemma).
+**Pipeline finished at 03:45 UTC Jun 5 (09:15 IST). Total runtime: 16.7 hours.**
 
-| Model | Behavioral | CDVA | Notes |
-|---|---|---|---|
-| llama-3.1-8b-instruct | DONE (10,132 rows, 0 failures) | RERUNNING (position fix active) | TransformerLens |
-| qwen2.5-7b-instruct | DONE (10,132 rows, 122 parse fails = 1.20%) | RERUNNING after nnsight proxy fix | nnsight |
-| gemma-2-2b-it | DONE (10,132 rows, 1 parse fail = 0.01%) | RERUNNING (position fix active) | TransformerLens |
-| phi-4-mini-instruct | NOT STARTED (will run with batch_size=4) | NOT STARTED | nnsight |
+| Model | Behavioral | CDVA | Library | Notes |
+|---|---|---|---|---|
+| llama-3.1-8b-instruct | 10,132 rows, 0 failures (0.00%) | 5,960/5,960 (100%) | TransformerLens | |
+| qwen2.5-7b-instruct | 10,132 rows, 117 failures (1.15%) | 5,960/5,960 (100%) | nnsight | parse failures = JSON non-compliance |
+| gemma-2-2b-it | 10,132 rows, 1 failure (0.01%) | 5,960/5,960 (100%) | TransformerLens | |
+| phi-4-mini-instruct | 10,132 rows, 126 failures (1.24%) | 5,960/5,960 (100%) | nnsight | parse failures = JSON non-compliance |
+| **Total** | **40,528 rows** | **23,840 pairs (100% success)** | | |
 
-**ETA to completion from 11:35 IST Jun 4 (06:05 UTC):**
+### Data Quality Summary
 
-| Remaining stage | Duration | Done by (UTC) |
+| Metric | Value | Assessment |
 |---|---|---|
-| Llama CDVA remaining (546/596 seeds, ~15.4 seeds/min) | ~35 min | ~06:40 |
-| Qwen CDVA (596 seeds, behavioral skipped) | ~40 min | ~07:20 |
-| Gemma CDVA (596 seeds, behavioral skipped) | ~42 min | ~08:02 |
-| Phi load + behavioral det (7,152 prompts, batch=4, ~20 prompts/min) | ~3.5–4 hr | ~12:00 |
-| Phi CDVA (596 seeds) | ~40 min | ~12:40 |
-| **Completion** | | **~12:40 UTC = 18:10 IST Jun 4** |
+| Behavioral rows | 40,528 (4 × 10,132) | Complete |
+| CDVA pairs | 23,840 (4 × 5,960) | Complete |
+| CDVA success rate | 100% (23,840/23,840) | Perfect |
+| Position fallback rate | 0.00% | Perfect (was 53% before fix) |
+| Zero delta_logit | 6.20% | Healthy (was 48% before fix) |
+| delta_logit range | [−23.00, +13.19] | Healthy variance |
+| delta_logit mean/std | −0.029 / 1.172 | Meaningful causal signal |
+| Duplicates | 0 | Clean |
+| NaN/Inf | 0 | Clean |
+| Seed coverage | 596/596 per model | Full |
+| Sample indices | 0–5 per model | Complete |
+
+### Remaining Post-Processing (CPU-only, no GPU needed)
+
+- `tau_calibration.json` — **MISSING**. The pipeline log says: `"No dev-seed rows in behavioral results; tau calibration skipped."` This step requires dev-seed rows to be tagged in the pentad dataset or a separate dev-seed split to be provided. Run `CPU_Only/cdva_calibration.py` locally after tagging dev seeds.
+- Leaderboard computation: `CPU_Only/leaderboard.py`
+- Validity gap table: `CPU_Only/validity_gap_table.py`
+- Predictive validity: `CPU_Only/predictive_validity.py`
+- Figures: `CPU_Only/generate_figures.py`
 
 ---
 
@@ -89,6 +103,7 @@ PIPELINE_COMPLETE → final sentinel
 | Qwen/Phi CDVA `AttributeError` — nnsight proxy chain | `_nnsight_layer_proxies` built incorrect proxy path (`nn_model.model.model.layers`); previous "fix" to `hf_model.model.layers` gave raw `nn.Module` objects with no `.output` attribute | **Root fix (commit `6fc63db`):** access layers INSIDE each `nn_model.trace()` context via `nn_model.model.layers[i]` (nnsight proxy objects); `lm_head` captured via `nn_model.lm_head.output.save()` |
 | Phi-4-mini behavioral batch_size=1 | `use_constrained_single=True` for nnsight models forced outlines single-prompt path (~12 s/prompt); 7,152 det-pass prompts would take ~32 hours | Removed `use_constrained_single` check; batch generation (batch=4, ~7 s/batch) reduces det-pass to ~3 hours (commit `6fc63db`) |
 | CDVA position detection failure for multi-word swap tokens | Swap tokens stored with underscores (`a_girl`, `middle_aged`, `a_trailer_park`); tokenizer never produces underscore-delimited tokens, so 53% of pairs fell back to `pos=1` (BOS prefix) — wrong position — producing trivially-zero delta_logit (91.5% zeros in fallback rows) | **Root fix (commit `fa47626`):** normalise underscores to spaces, then apply 3-pass char-level search: (1) single-token substring, (2) full-phrase in concatenated decoded string with char→token mapping, (3) last-word heuristic. Fallback rate drops from ~53% to < 10%. All CDVA results wiped and rerun with the fix. |
+| Model loading with `device_map="auto"` causing CPU offload | accelerate partially offloads parameters to CPU/meta device when leftover CUDA allocations exist from previous model; inference 37× slower | Changed to `device_map={"": 0}` which forces all parameters onto GPU:0 unconditionally (commit `7817da3`) |
 | Behavioral resume slow | `_completed_keys_from` used `iterrows()` on up to 171k rows — 5–15 min between models | Vectorised with `isin` and set comprehensions; resume overhead now < 5 s. |
 | Pentad WinoBias contamination | `ValueError: WinoBias rows in pentad — must be held out` | `pentad_generator.py` now auto-excludes WinoBias seeds. |
 
@@ -164,30 +179,54 @@ echo $!
 
 ---
 
-## Expected Runtime (A100 40 GB, sequential loading)
+## Actual Runtime (A100 40 GB, sequential loading, `device_map={"": 0}`)
 
-| Phase | Duration | Notes |
+Production run completed Jun 5, 2026 in **16.7 hours** total (including all restarts after bug fixes).
+
+| Phase | Actual Duration | Notes |
 |---|---|---|
-| Behavioral per model | ~35–50 min | 10,132 rows, batch=4, flash_attn |
-| CDVA per model (TransformerLens) | ~60 min | 596 seeds × 10 pairs; ~10 seeds/min |
-| CDVA per model (nnsight) | ~60 min | Qwen, Phi-4-mini |
-| Tau calibration | ~5 min | CPU-only |
-| **Full GPU phase (4 models)** | **~7–8 hr** | Sequential loading overhead included |
+| Llama behavioral (10,132 rows, batch=4) | ~35 min | All from checkpoint |
+| Llama CDVA (596 seeds, TransformerLens) | ~39 min | ~15 seeds/min |
+| Qwen behavioral (10,132 rows, batch=4) | ~7 min | Mostly from checkpoint; 114 retries |
+| Qwen CDVA (596 seeds, nnsight) | ~40 min | ~15 seeds/min |
+| Gemma behavioral (10,132 rows, batch=4) | ~0 min | All from checkpoint |
+| Gemma CDVA (596 seeds, TransformerLens) | ~42 min | ~14 seeds/min |
+| Phi behavioral (10,132 rows fresh, batch=4) | ~11 hr | ~11.8 prompts/min; slower due to verbose outputs |
+| Phi CDVA (596 seeds, nnsight) | ~13 min | ~46 seeds/min (3.8B model = fastest) |
+| **Total (from final restart)** | **~13 hr** | device_map fix eliminated 4-hr CPU-offload penalty |
 
 TL conversion (CPU→GPU) for Gemma-2: ~20 s (one-time, cached thereafter).
+TL conversion for Llama-3.1-8B: ~40 s (one-time, cached thereafter).
 
 ---
 
-## Post-Completion
+## Post-Completion Checklist
 
-When pipeline finishes:
+Pipeline finished Jun 5, 2026 03:45 UTC. Steps to finalize:
 
-1. Download `results/behavioral_results.parquet`, `results/cdva_results.parquet`, `results/tau_calibration.json`
-2. Download `Dataset/seeds/pentad_dataset.parquet` and `pentad_manifest.json`
-3. Run `CPU_Only/` scoring locally
-4. Run `CPU_Only/leaderboard.py` and `CPU_Only/validity_gap_table.py`
-5. Run `CPU_Only/predictive_validity.py`
-6. Stop the GCP instance to stop billing: `gcloud compute instances stop audit --zone=us-central1-f`
+1. **Download results from VM:**
+   ```bash
+   gcloud compute scp koushikdeb2009@audit:/home/koushikdeb2009/Audit_Benchmark/Code/mirage/results/behavioral_results.parquet ./results/ \
+     --zone=us-central1-f --project=solar-nation-470113-r4 --ssh-key-file=C:\Users\Debz\.ssh\id_rsa_gcp
+   gcloud compute scp koushikdeb2009@audit:/home/koushikdeb2009/Audit_Benchmark/Code/mirage/results/cdva_results.parquet ./results/ \
+     --zone=us-central1-f --project=solar-nation-470113-r4 --ssh-key-file=C:\Users\Debz\.ssh\id_rsa_gcp
+   ```
+2. **Run tau calibration locally** (needs dev-seed tagging first — see note below)
+3. **Run CPU_Only scoring pipeline:**
+   - `CPU_Only/leaderboard.py`
+   - `CPU_Only/validity_gap_table.py`
+   - `CPU_Only/predictive_validity.py`
+   - `CPU_Only/generate_figures.py`
+4. **Stop the GCP instance:** `gcloud compute instances stop audit --zone=us-central1-f --project=solar-nation-470113-r4`
+
+### Note on tau calibration
+
+The pipeline log says `"No dev-seed rows in behavioral results; tau calibration skipped."` The calibration script (`GPU_CPU/cdva_calibration.py` or `CPU_Only/cdva_calibration.py`) expects a subset of seeds to be tagged as `dev_seed=True` in the pentad dataset. These dev seeds are used to select the threshold τ that separates CDVA-pass from CDVA-fail. Options:
+
+1. Add a `dev_seed` boolean column to `pentad_dataset.parquet` marking ~50 seeds as dev (the rest are test).
+2. Or use a fixed τ value derived from the delta_logit distribution (e.g., median absolute delta as the threshold).
+
+This is a research design choice that does not require GPU re-run.
 
 ---
 
