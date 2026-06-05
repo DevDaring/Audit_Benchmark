@@ -9,12 +9,14 @@ LOG=~/mirage_prod.log
 # Models are stored directly in hf_cache/ (not hf_cache/hub/) so use HF_HUB_CACHE
 export HF_HUB_CACHE=/home/koushikdeb2009/hf_cache
 export HF_HOME=/home/koushikdeb2009/hf_cache
-export MIRAGE_SEQUENTIAL_MODELS=1
-export MIRAGE_EVAL_BATCH_SIZE=4
 
 cd "$MIRAGE"
 set -a; source .env; set +a
 export HF_TOKEN="${HUGGINGFACE_TOKEN}"
+# Re-export after .env so secrets file cannot disable sequential mode on 40GB GPU.
+export MIRAGE_SEQUENTIAL_MODELS=1
+export MIRAGE_EVAL_BATCH_SIZE=4
+export STATE_DIR="${HOME}/mirage-state"
 
 echo "[$(date -u +%FT%TZ)] === PRODUCTION PIPELINE START ===" | tee "$LOG"
 echo "Sequential loading: MIRAGE_SEQUENTIAL_MODELS=$MIRAGE_SEQUENTIAL_MODELS" | tee -a "$LOG"

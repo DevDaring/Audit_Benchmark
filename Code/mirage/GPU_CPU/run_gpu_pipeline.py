@@ -4,11 +4,14 @@ Purpose: Production entry-point for the full MIRAGE GPU pipeline.
          Runs after the dataset has been built (Dataset/seeds/pentad_dataset.parquet exists).
 
 Steps:
-  1. Load all 4 OSM models simultaneously (~42 GB; A100 80 GB handles this).
+  1. Load OSM models (sequential on <48 GB VRAM, simultaneous on 80 GB).
   2. run_osm_behavioral  — behavioral evaluation on the full pentad dataset.
   3. run_cdva_patching   — causal activation patching on counterfactual (c) variants.
-  4. Unload all models to free VRAM for any subsequent CPU post-processing.
+  4. Unload models to free VRAM for CPU post-processing.
   5. run_cdva_calibration — tau threshold calibration on the dev set.
+
+Sequential mode (A100 40 GB, L4 24 GB): load one model → behavioral → CDVA →
+unload, then repeat for the next model.  Peak VRAM ≈ one model (~16 GB).
 
 Both behavioral and CDVA functions include incremental-save / resume logic: if the
 process is killed mid-run (e.g. an eviction), re-running this script will skip
@@ -19,11 +22,13 @@ Implements / builds on / cites:
 
 Part of the MIRAGE codebase. See README.md for full project context.
 """
+import gc
 import logging
 import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +40,100 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RESULTS_DIR, SEEDS_DIR, ensure_dirs
 from logger_setup import setup_logging
+
+
+def _free_vram() -> None:
+    import torch
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _run_pipeline_for_models(
+    pentad_df,
+    models: dict[str, tuple[Any, Any]],
+    run_id: str,
+) -> tuple[Any, Any]:
+    """Run behavioral + CDVA for the models currently loaded."""
+    from GPU_CPU.osm_behavioral import run_osm_behavioral
+    from GPU_CPU.cdva_patching import run_cdva
+
+    behavioral_df = run_osm_behavioral(pentad_df, models, run_id)
+    cdva_df = run_cdva(pentad_df, models, run_id)
+    return behavioral_df, cdva_df
+
+
+def _run_sequential(pentad_df, run_id: str, t0: float) -> tuple[Any, Any]:
+    """Load → behavioral → CDVA → unload for each OSM model in turn.
+
+    Behavioral and CDVA results accumulate across all 4 models — each call to
+    run_osm_behavioral/run_cdva reads the existing checkpoint parquet and
+    appends to it, so the final parquets contain all 4 models when done.
+    The returned DataFrames are the latest full parquet reads after all models.
+    """
+    import pandas as pd
+    from GPU_CPU.load_osm import load_model, unload_model
+
+    for idx, model_cfg in enumerate(OSM_MODELS, start=1):
+        name = model_cfg["name"]
+        logger.info(
+            "Step 1–3 (model %d/4): %s — load → behavioral → CDVA → unload ...",
+            idx,
+            name,
+        )
+        model, tokenizer = load_model(model_cfg)
+        models = {name: (model, tokenizer)}
+
+        _run_pipeline_for_models(pentad_df, models, run_id)
+
+        unload_model(name)
+        _free_vram()
+        logger.info(
+            "Model %d/4 (%s) complete (%.1f s elapsed).",
+            idx,
+            name,
+            time.monotonic() - t0,
+        )
+
+    # Read back the complete accumulated parquets for calibration / reporting.
+    from config import RESULTS_DIR
+    beh_path = RESULTS_DIR / "behavioral_results.parquet"
+    cdva_path = RESULTS_DIR / "cdva_results.parquet"
+    behavioral_df = pd.read_parquet(beh_path) if beh_path.exists() else pd.DataFrame()
+    cdva_df = pd.read_parquet(cdva_path) if cdva_path.exists() else pd.DataFrame()
+    logger.info(
+        "Sequential loop complete: %d behavioral rows, %d CDVA rows across all models.",
+        len(behavioral_df), len(cdva_df),
+    )
+    return behavioral_df, cdva_df
+
+
+def _run_simultaneous(pentad_df, run_id: str, t0: float) -> tuple[Any, Any]:
+    """Load all 4 OSM models at once (~42 GB; A100 80 GB)."""
+    from GPU_CPU.load_osm import load_all_osm_models, unload_model
+
+    logger.info("Step 1/4: Loading all 4 OSM models simultaneously (~42 GB) ...")
+    models = load_all_osm_models()
+    logger.info(
+        "Step 1/4 done: %d models loaded (%.1f s elapsed)",
+        len(models),
+        time.monotonic() - t0,
+    )
+
+    logger.info(
+        "Step 2–3/4: Behavioral + CDVA — %d models × %d rows ...",
+        len(models),
+        len(pentad_df),
+    )
+    behavioral_df, cdva_df = _run_pipeline_for_models(pentad_df, models, run_id)
+
+    logger.info("Step 4/4: Unloading all OSM models ...")
+    for model_cfg in OSM_MODELS:
+        unload_model(model_cfg["name"])
+    _free_vram()
+
+    return behavioral_df, cdva_df
 
 
 def main() -> bool:
@@ -74,56 +173,54 @@ def main() -> bool:
         pentad_df["seed_id"].nunique(),
     )
 
-    # ── 1. Load all 4 OSM models simultaneously ────────────────────────────
-    logger.info("Step 1/4: Loading all 4 OSM models (~42 GB on A100 80 GB) ...")
-    from GPU_CPU.load_osm import load_all_osm_models, unload_model
-    models = load_all_osm_models()
-    logger.info(
-        "Step 1/4 done: %d models loaded (%.1f s elapsed)",
-        len(models), time.monotonic() - t0,
-    )
+    from GPU_CPU.load_osm import get_gpu_vram_gb, use_sequential_loading
 
-    # ── 2. Behavioral evaluation ───────────────────────────────────────────
-    logger.info(
-        "Step 2/4: Behavioral evaluation — %d models × %d rows ...",
-        len(models), len(pentad_df),
-    )
-    from GPU_CPU.osm_behavioral import run_osm_behavioral
-    behavioral_df = run_osm_behavioral(pentad_df, models, run_id)
-    logger.info(
-        "Step 2/4 done: behavioral_results.parquet written (%d rows, %.1f s)",
-        len(behavioral_df), time.monotonic() - t0,
-    )
+    sequential = use_sequential_loading()
+    vram_gb = get_gpu_vram_gb()
+    if sequential:
+        logger.info(
+            "Sequential model loading enabled (GPU VRAM=%.1f GB; "
+            "one model at a time, peak ~16 GB).",
+            vram_gb,
+        )
+        behavioral_df, cdva_df = _run_sequential(pentad_df, run_id, t0)
+    else:
+        logger.info(
+            "Simultaneous model loading enabled (GPU VRAM=%.1f GB; all 4 models resident).",
+            vram_gb,
+        )
+        behavioral_df, cdva_df = _run_simultaneous(pentad_df, run_id, t0)
 
-    # ── 3. CDVA patching ───────────────────────────────────────────────────
-    logger.info("Step 3/4: CDVA activation patching ...")
-    from GPU_CPU.cdva_patching import run_cdva
-    cdva_df = run_cdva(pentad_df, models, run_id)
     logger.info(
-        "Step 3/4 done: cdva_results.parquet written (%d rows, %.1f s)",
-        len(cdva_df), time.monotonic() - t0,
+        "Behavioral + CDVA done: %d behavioral rows, %d CDVA rows (%.1f s)",
+        len(behavioral_df) if behavioral_df is not None else 0,
+        len(cdva_df) if cdva_df is not None else 0,
+        time.monotonic() - t0,
     )
-
-    # ── 4. Unload models ───────────────────────────────────────────────────
-    logger.info("Step 4/4: Unloading all OSM models ...")
-    for model_cfg in OSM_MODELS:
-        unload_model(model_cfg["name"])
-    import torch, gc
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
     logger.info("VRAM freed. Running CDVA tau calibration on CPU ...")
 
     # ── 5. CDVA tau calibration (uses dev-seed subset of full results) ─────
-    # calibrate_tau() takes the behavioral and CDVA dataframes filtered to the
-    # dev seed set.  If dev seeds are not in the main pentad (det-only build),
-    # this step logs a warning and produces a fallback tau = 0.5.
     from GPU_CPU.cdva_calibration import calibrate_tau
+
     dev_seeds_path = SEEDS_DIR / "dev_seeds.parquet"
-    if dev_seeds_path.exists() and len(behavioral_df) > 0 and len(cdva_df) > 0:
+    if (
+        dev_seeds_path.exists()
+        and behavioral_df is not None
+        and cdva_df is not None
+        and len(behavioral_df) > 0
+        and len(cdva_df) > 0
+    ):
         dev_seeds_df = pd.read_parquet(dev_seeds_path)
-        dev_ids = set(dev_seeds_df["seed_id"].tolist()) if "seed_id" in dev_seeds_df.columns else set()
-        dev_beh  = behavioral_df[behavioral_df["seed_id"].isin(dev_ids)] if dev_ids else behavioral_df
+        dev_ids = (
+            set(dev_seeds_df["seed_id"].tolist())
+            if "seed_id" in dev_seeds_df.columns
+            else set()
+        )
+        dev_beh = (
+            behavioral_df[behavioral_df["seed_id"].isin(dev_ids)]
+            if dev_ids
+            else behavioral_df
+        )
         dev_cdva = cdva_df[cdva_df["seed_id"].isin(dev_ids)] if dev_ids else cdva_df
         if len(dev_beh) > 0:
             calibrate_tau(dev_beh, dev_cdva)
@@ -135,7 +232,8 @@ def main() -> bool:
     elapsed = time.monotonic() - t0
     logger.info(
         "=== GPU PIPELINE COMPLETE in %.1f s (%.1f h) ===",
-        elapsed, elapsed / 3600,
+        elapsed,
+        elapsed / 3600,
     )
     logger.info("  Results in: %s", RESULTS_DIR)
     return True

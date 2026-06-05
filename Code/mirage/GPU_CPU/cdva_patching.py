@@ -281,13 +281,12 @@ def run_cdva(
         # to a HookedTransformer inside utils_attention.py.  The TL copy adds
         # roughly the same amount of VRAM as the HF model itself.
         #
-        # On an A100 80 GB (all 4 models loaded, ~56 GB used, ~24 GB free):
-        #   - Llama 8 B  (~16 GB): needs ~16 GB for TL → 24 GB free is sufficient.
-        #   - Gemma 9 B  (~18 GB): needs ~18 GB for TL → 24 GB free is sufficient.
-        #   → No unloading needed on 80 GB.
+        # On an A100 80 GB (all 4 models loaded, ~42 GB used, ~38 GB free):
+        #   - Llama 8 B  (~16 GB): TL copy fits in headroom → no unload needed.
+        #   - Gemma 2 B  (~4 GB):  TL copy fits easily.
         #
-        # On a 40 GB A100 (single model loaded, ~24–36 GB used, 4–16 GB free):
-        #   Threshold: unload if free_gb < model_param_gb (1.0× safety margin).
+        # On a 40 GB A100 (single model loaded, ~16 GB used, ~24 GB free):
+        #   TL coexistence usually fits; unload HF first if free_gb < model_param_gb.
         #
         # The threshold was previously 1.5× which triggered unnecessarily on 80 GB.
         tl_unloaded = False
@@ -329,7 +328,7 @@ def run_cdva(
             except Exception as exc:
                 logger.error("CDVA failed for seed %s, model %s: %s", seed_id, model_name, exc)
 
-            if (i + 1) % 25 == 0:
+            if (i + 1) % 10 == 0:
                 df_partial = pd.DataFrame(all_rows)
                 df_partial.to_parquet(_CDVA_PATH, index=False)
                 logger.info("  CDVA checkpoint: %d seeds done.", i + 1)

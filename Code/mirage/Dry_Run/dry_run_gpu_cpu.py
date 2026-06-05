@@ -160,8 +160,8 @@ def _test_osm_load_and_eval() -> bool:
             finally:
                 # Unload immediately after testing — keeps peak VRAM at one
                 # model's footprint (~18 GB) rather than accumulating all four
-                # (~62 GB).  The production pipeline uses load_all_osm_models()
-                # which keeps all models resident for throughput.
+                # (~42 GB).  Production run_gpu_pipeline.py uses the same
+                # sequential pattern on GPUs <48 GB VRAM.
                 unload_model(model_cfg["name"])
 
     except Exception as exc:
