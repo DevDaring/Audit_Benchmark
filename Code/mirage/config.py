@@ -155,7 +155,7 @@ API_MODELS: list[dict] = [
         # (AWS_ACCESS_KEY / AWS_SECRET_KEY); on failure it falls back to OpenRouter
         # (qwen/qwen3-next-80b-a3b-instruct, 2 keys round-robin).
         "name": "qwen3-next-80b-a3b",
-        "model_id": "qwen.qwen3-next-80b-a3b-v1:0",
+        "model_id": "qwen.qwen3-next-80b-a3b",
         "primary_route": "bedrock",
         "fallback_route": "openrouter",
     },

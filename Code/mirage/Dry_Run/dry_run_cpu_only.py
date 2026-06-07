@@ -49,7 +49,7 @@ def _test_bedrock_qwen3_next() -> bool:
     # API-1: Qwen3-Next-80B-A3B on Bedrock (account 1) with OpenRouter fallback.
     try:
         from CPU_Only.api_clients.bedrock_client import call_bedrock_with_fallback
-        result = call_bedrock_with_fallback("qwen.qwen3-next-80b-a3b-v1:0", _MESSAGES, max_tokens=128)
+        result = call_bedrock_with_fallback("qwen.qwen3-next-80b-a3b", _MESSAGES, max_tokens=128)
         passed = result["success_flag"]
         _mark("BEDROCK_QWEN3_NEXT_80B", passed, f"route={result['route_used']} attempts={result['attempt_count']}")
         return passed

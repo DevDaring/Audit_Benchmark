@@ -1,7 +1,7 @@
 """
 File: CPU_Only/api_clients/bedrock_client.py
 Purpose: AWS Bedrock client with OpenRouter fallback for API-1
-         (qwen.qwen3-next-80b-a3b-v1:0) and API-2 (amazon.nova-2-lite-v1:0).
+         (qwen.qwen3-next-80b-a3b) and API-2 (amazon.nova-2-lite-v1:0).
 
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
@@ -44,7 +44,7 @@ _BEDROCK_REGION = "us-east-1"
 _BEDROCK_ATTEMPTS_PER_TIER = 2  # initial call + one retry, per credential tier
 
 _OPENROUTER_MODEL_MAP = {
-    "qwen.qwen3-next-80b-a3b-v1:0": "qwen/qwen3-next-80b-a3b-instruct",
+    "qwen.qwen3-next-80b-a3b": "qwen/qwen3-next-80b-a3b-instruct",
     "us.amazon.nova-2-lite-v1:0": "amazon/nova-lite-v1",
 }
 
