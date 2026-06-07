@@ -25,6 +25,9 @@ google-generativeai>=0.8
 mistralai>=1.2
 openai>=1.50
 
+# Robust JSON parsing of model responses (fallback after json.loads, before judge API)
+json-repair>=0.30
+
 # Data
 pandas==2.2.2
 pyarrow>=15

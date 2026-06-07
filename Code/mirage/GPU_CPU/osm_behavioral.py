@@ -7,8 +7,8 @@ Parallelism strategy:
   - **80 GB GPU:** all 4 OSM models stay in VRAM; EVAL_BATCH_SIZE=8 batched forwards.
   - **≤40 GB GPU (sequential loading):** one model at a time; batch size auto-reduced
     to 4 (override with MIRAGE_EVAL_BATCH_SIZE).
-  - Outlines constrained decoding is single-prompt only; nnsight models (Qwen, Phi)
-    always use batch_size=1 on the deterministic pass.
+  - Batch generation (batch_size 4–8) is used for all OSM models including nnsight
+    (Qwen, Phi); outlines single-prompt path is disabled for speed.
 
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167

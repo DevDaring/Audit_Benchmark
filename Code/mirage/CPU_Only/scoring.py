@@ -29,7 +29,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import RESULTS_DIR, ensure_dirs
+from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
+
+_OSM_NAMES = {m["name"] for m in OSM_MODELS}
 from Dataset.category_utils import normalize_seed_category
 from Dataset.gold_utils import is_scorable_gold
 from results_utils import dedup_behavioral
@@ -197,9 +199,13 @@ def score_all(
         seed_meta = behavioral_df[behavioral_df["seed_id"] == seed_id].iloc[0]
         for model_name in model_names:
             b_pass = compute_mirage_b(behavioral_df, seed_id, model_name)
-            f_pass = False
-            if cdva_df is not None and tau is not None and len(cdva_df) > 0:
-                f_pass = compute_mirage_full(behavioral_df, cdva_df, seed_id, model_name, tau)
+            # MIRAGE-Full requires CDVA — OSM models only (README §13).
+            if model_name in _OSM_NAMES and cdva_df is not None and tau is not None and len(cdva_df) > 0:
+                f_pass: bool | None = compute_mirage_full(
+                    behavioral_df, cdva_df, seed_id, model_name, tau
+                )
+            else:
+                f_pass = None
 
             rows.append(
                 {
@@ -217,10 +223,14 @@ def score_all(
 
     df = pd.DataFrame(rows)
     df.to_parquet(_SCORED_PATH, index=False)
+    osm_df = df[df["model_name"].isin(_OSM_NAMES)]
     logger.info(
         "Scoring complete. %d seeds x %d models. MIRAGE-B pass rate: %.3f",
         len(seed_ids),
         len(model_names),
         df["mirage_b_pass"].mean() if len(df) > 0 else 0.0,
     )
+    if len(osm_df) > 0:
+        full_rate = osm_df["mirage_full_pass"].dropna().mean()
+        logger.info("MIRAGE-Full pass rate (OSM only): %.3f", full_rate if pd.notna(full_rate) else 0.0)
     return df

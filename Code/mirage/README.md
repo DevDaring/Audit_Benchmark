@@ -481,11 +481,11 @@ Pre-registered methods in `CPU_Only/statistics.py`:
 | OSM-2 | Qwen2.5-7B-Instruct | Behavioural + CDVA |
 | OSM-3 | Gemma-2-2b-it | Behavioural + CDVA |
 | OSM-4 | Phi-4-mini-instruct | Behavioural + CDVA |
-| API-1 | gpt-oss-20b (Bedrock) | Behavioural only |
-| API-2 | nova-2-lite (Bedrock) | Behavioural only |
-| API-3 | Gemini (GCP) | Behavioural only |
-| API-4 | Mistral | Behavioural only |
-| Generator | DeepSeek | Slot (d)/(e) generation only — **not evaluated** |
+| API-1 | qwen3-next-80b-a3b (Bedrock → OpenRouter) | Behavioural only |
+| API-2 | amazon-nova-2-lite (Bedrock → OpenRouter) | Behavioural only |
+| API-3 | gemini-2.5-flash (MegaLLM → LinkAPI → OpenRouter) | Behavioural only |
+| API-4 | mistral-medium (Mistral → OpenRouter) | Behavioural only |
+| Generator/Judge | DeepSeek (deepseek-chat) | Slot (d)/(e) generation and JSON-repair judge — **not evaluated** |
 
 ### 9.3 RNG and reproducibility
 
@@ -583,9 +583,13 @@ Copy `.env.example` to `.env`. Required keys:
 | Variable | Purpose |
 |---|---|
 | `HUGGINGFACE_TOKEN` | Gated models (Llama, Gemma) |
-| `DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY_2` | Slot d/e generation (parallel workers) |
-| `AWS_BEDROCK_KEY`, `GEMINI_API_KEY_*`, `MISTRAL_API_KEY*` | API model evaluation |
-| `OPENROUTER_API_KEY_*` | Fallback routing |
+| `DEEPSEEK_API_KEY_1` / `DEEPSEEK_API_KEY_2` | Slot d/e generation and JSON-repair judge (not an evaluation model) |
+| `MEGALLM_API_Key` | API-3 (`gemini-2.5-flash`) primary, via the MegaLLM gateway |
+| `GeminiCheap_LinkAPI_Key` | API-3 secondary, via the LinkAPI gateway (geminicheap pricing group) |
+| `AWS_ACCESS_KEY` / `AWS_SECRET_KEY` | API-1 (`qwen3-next-80b-a3b`) and API-2 (`amazon-nova-2-lite`) on Bedrock |
+| `MISTRAL_API_KEY1` / `MISTRAL_API_KEY2` | API-4 (`mistral-medium`) evaluation |
+| `OPENROUTER_API_KEY_1` / `OPENROUTER_API_KEY_2` | OpenRouter fallback for all four API models (round-robin) |
+| `GEMINI_API_KEY_*` | Optional: selectable JSON-repair judge and slot d/e generation fallback (not an evaluation model) |
 
 Optional GPU tuning (auto-detected on A100 40 GB):
 

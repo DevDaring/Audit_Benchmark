@@ -1,8 +1,8 @@
 """
 File: Dry_Run/dry_run_bedrock.py
-Purpose: Sanity-check that AWS_ACCESS_KEY + AWS_SECRET_KEY can reach both
-         Bedrock-routed API models:
-           - openai.gpt-oss-20b-1:0
+Purpose: Sanity-check that AWS_ACCESS_KEY + AWS_SECRET_KEY can reach the
+         Bedrock-routed API models (built dynamically from config.API_MODELS):
+           - qwen.qwen3-next-80b-a3b-v1:0
            - amazon.nova-2-lite-v1:0
 
 Uses the Bedrock Converse API (model-agnostic).

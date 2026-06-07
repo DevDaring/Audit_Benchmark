@@ -158,6 +158,11 @@ def run_predictive_validity(
     features_df = _build_feature_matrix(behavioral_df, cdva_df)
     train_labels = _compute_mirage_b_labels(behavioral_df)
     test_labels = _compute_winobias_coreference_labels(behavioral_df)
+    if test_labels.empty or "seed_id" not in test_labels.columns:
+        logger.warning(
+            "No WinoBias behavioral rows found. Run WinoBias evaluation separately."
+        )
+        return {}
 
     merged = features_df.merge(train_labels, on=["seed_id", "model_name"])
     feat_cols = [c for c in merged.columns if c.startswith("feat_")]
@@ -168,9 +173,7 @@ def run_predictive_validity(
     )
 
     if len(test_feat) == 0:
-        logger.warning(
-            "No WinoBias behavioral rows found. Run WinoBias evaluation separately."
-        )
+        logger.warning("WinoBias feature rows empty after merge; skipping.")
         return {}
 
     X_train = train[feat_cols].fillna(0).values

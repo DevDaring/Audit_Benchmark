@@ -45,15 +45,16 @@ def _test_env_keys() -> bool:
     return True
 
 
-def _test_bedrock_gpt_oss() -> bool:
+def _test_bedrock_qwen3_next() -> bool:
+    # API-1: Qwen3-Next-80B-A3B on Bedrock (account 1) with OpenRouter fallback.
     try:
         from CPU_Only.api_clients.bedrock_client import call_bedrock_with_fallback
-        result = call_bedrock_with_fallback("openai.gpt-oss-20b-1:0", _MESSAGES, max_tokens=128)
+        result = call_bedrock_with_fallback("qwen.qwen3-next-80b-a3b-v1:0", _MESSAGES, max_tokens=128)
         passed = result["success_flag"]
-        _mark("BEDROCK_GPT_OSS_20B", passed, f"route={result['route_used']} attempts={result['attempt_count']}")
+        _mark("BEDROCK_QWEN3_NEXT_80B", passed, f"route={result['route_used']} attempts={result['attempt_count']}")
         return passed
     except Exception as exc:
-        _mark("BEDROCK_GPT_OSS_20B", False, str(exc))
+        _mark("BEDROCK_QWEN3_NEXT_80B", False, str(exc))
         return False
 
 
@@ -69,31 +70,49 @@ def _test_bedrock_nova_lite() -> bool:
         return False
 
 
-def _test_gemini() -> bool:
+def _test_megallm() -> bool:
+    # API-3: gemini-2.5-flash, full chain MegaLLM -> LinkAPI -> OpenRouter.
     try:
-        from CPU_Only.api_clients.gemini_client import call_gemini_with_roundrobin
-        # Test across all 4 keys (one call per key)
-        all_pass = True
-        for i in range(4):
-            result = call_gemini_with_roundrobin(_MESSAGES, max_tokens=128)
-            passed = result["success_flag"]
-            _mark(f"GEMINI_KEY_{i+1}", passed, f"key_idx={result['key_index']}")
-            if not passed:
-                all_pass = False
-        return all_pass
+        from CPU_Only.api_clients.megallm_client import call_megallm_with_fallback
+        result = call_megallm_with_fallback("gemini-2.5-flash", _MESSAGES, max_tokens=128)
+        passed = result["success_flag"]
+        _mark("MEGALLM_GEMINI_2_5_FLASH", passed, f"route={result['route_used']} attempts={result['attempt_count']}")
+        return passed
     except Exception as exc:
-        _mark("GEMINI_ALL_KEYS", False, str(exc))
+        _mark("MEGALLM_GEMINI_2_5_FLASH", False, str(exc))
+        return False
+
+
+def _test_linkapi() -> bool:
+    # API-3 secondary: gemini-2.5-flash via LinkAPI (geminicheap pricing group).
+    try:
+        from CPU_Only.api_clients.megallm_client import _call_openai_compatible
+        from config import LINKAPI_API_BASE_URL, LINKAPI_API_KEY
+        raw = _call_openai_compatible(
+            LINKAPI_API_BASE_URL, LINKAPI_API_KEY, "gemini-2.5-flash", _MESSAGES, 128
+        )
+        passed = bool(raw and raw.strip())
+        _mark("LINKAPI_GEMINI_2_5_FLASH", passed, f"base={LINKAPI_API_BASE_URL}")
+        return passed
+    except Exception as exc:
+        _mark("LINKAPI_GEMINI_2_5_FLASH", False, str(exc))
         return False
 
 
 def _test_mistral() -> bool:
+    # Validate the model API-4 actually evaluates (mistral-medium-latest), not the
+    # client default — pull the id from config so the gate stays in sync.
     try:
         from CPU_Only.api_clients.mistral_client import call_mistral_with_roundrobin
+        from config import API_MODELS
+        mistral_id = next(
+            (m["model_id"] for m in API_MODELS if m["primary_route"] == "mistral"), None
+        )
         all_pass = True
         for i in range(2):
-            result = call_mistral_with_roundrobin(_MESSAGES, max_tokens=128)
+            result = call_mistral_with_roundrobin(_MESSAGES, max_tokens=128, model_name=mistral_id)
             passed = result["success_flag"]
-            _mark(f"MISTRAL_KEY_{i+1}", passed, f"key_idx={result['key_index']}")
+            _mark(f"MISTRAL_KEY_{i+1}", passed, f"model={mistral_id} key_idx={result['key_index']}")
             if not passed:
                 all_pass = False
         return all_pass
@@ -103,27 +122,16 @@ def _test_mistral() -> bool:
 
 
 def _test_openrouter_fallback() -> bool:
+    # Validate OpenRouter keys against a real fallback slug actually used by the
+    # pipeline (the Mistral API-4 secondary). Paid model — no :free variant.
     try:
         from CPU_Only.api_clients.openrouter_client import call_openrouter_with_roundrobin
-        result = call_openrouter_with_roundrobin("openai/gpt-4o-mini", _MESSAGES, max_tokens=128)
+        result = call_openrouter_with_roundrobin("mistralai/mistral-medium-3-5", _MESSAGES, max_tokens=128)
         passed = result["success_flag"]
-        _mark("OPENROUTER_FALLBACK", passed, f"key_idx={result['key_index']}")
+        _mark("OPENROUTER_FALLBACK", passed, f"model=mistralai/mistral-medium-3-5 key_idx={result['key_index']}")
         return passed
     except Exception as exc:
         _mark("OPENROUTER_FALLBACK", False, str(exc))
-        return False
-
-
-def _test_judge_gemini() -> bool:
-    try:
-        from CPU_Only.judge_router import judge
-        malformed = '{"answer": "C", "confidence": 0.8 }'  # missing rationale
-        parsed, method = judge(malformed, provider="gemini")
-        passed = parsed is not None
-        _mark("JUDGE_GEMINI", passed, f"method={method}")
-        return passed
-    except Exception as exc:
-        _mark("JUDGE_GEMINI", False, str(exc))
         return False
 
 
@@ -218,12 +226,12 @@ def run() -> bool:
 
     checks = [
         _test_env_keys,
-        _test_bedrock_gpt_oss,
+        _test_bedrock_qwen3_next,
         _test_bedrock_nova_lite,
+        _test_megallm,
+        _test_linkapi,
         _test_openrouter_fallback,
-        _test_gemini,
         _test_mistral,
-        _test_judge_gemini,
         _test_judge_deepseek,
         _test_judge_mistral,
         _test_statistics,

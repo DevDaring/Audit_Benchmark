@@ -32,8 +32,8 @@ from typing import Any
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import API_MODELS, RESULTS_DIR, RESEARCH_SYSTEM_PROMPT, ensure_dirs
-from parse_utils import parse_model_response, repair_json
+from config import API_CHECKPOINT_EVERY, API_MODELS, RESULTS_DIR, RESEARCH_SYSTEM_PROMPT, ensure_dirs
+from parse_utils import parse_model_response
 from results_utils import dedup_behavioral, reparse_failed_rows
 
 logger = logging.getLogger(__name__)
@@ -48,21 +48,34 @@ _FM4_TEMPERATURE = 0.7
 
 
 def _parse_response(raw: str, prompt_id: str) -> tuple[dict | None, str]:
-    """Parse raw response; try shared parser, then judge fallback."""
+    """Parse a raw response with LOCAL methods first; the judge API is only a
+    last resort when every deterministic/heuristic method has failed."""
     if not raw:
         return None, "failed"
 
+    # All local parsing (json -> deterministic repair -> json_repair lib ->
+    # quoted-lines -> regex) happens inside parse_model_response.
     success, answer, conf, rationale, method, reason = parse_model_response(raw)
     if success:
         return {"answer": answer, "confidence": conf, "rationale": rationale}, method
 
-    repaired = repair_json(raw)
-    if repaired is not None and str(repaired.get("answer", "")).strip():
-        return repaired, "json"
-
+    # Last resort only: DeepSeek judge extracts the answer from output that no
+    # local method could parse (GCP/Gemini judge retired — was rate-limited).
     from CPU_Only.judge_router import judge
-    parsed, method = judge(raw, provider="gemini")
+    parsed, method = judge(raw, provider="deepseek")
     return parsed, method
+
+
+def _cell_value(val: Any) -> Any:
+    """Preserve NaN/None like GPU osm_behavioral rows (avoid str(nan))."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return val
 
 
 def _build_messages(prompt_text: str) -> list[dict]:
@@ -85,12 +98,15 @@ def _call_api_model(
     if primary == "bedrock":
         from CPU_Only.api_clients.bedrock_client import call_bedrock_with_fallback
         return call_bedrock_with_fallback(model_id, messages, max_tokens, temperature=temperature)
-    elif primary == "gcp":
-        from CPU_Only.api_clients.gemini_client import call_gemini_with_roundrobin
-        return call_gemini_with_roundrobin(messages, max_tokens, temperature=temperature)
+    elif primary == "megallm":
+        from CPU_Only.api_clients.megallm_client import call_megallm_with_fallback
+        return call_megallm_with_fallback(model_id, messages, max_tokens, temperature=temperature)
     elif primary == "mistral":
-        from CPU_Only.api_clients.mistral_client import call_mistral_with_roundrobin
-        return call_mistral_with_roundrobin(messages, max_tokens, temperature=temperature)
+        from CPU_Only.api_clients.mistral_client import call_mistral_with_fallback
+        # Pass the config model_id through so API-4 calls the declared model
+        # (mistral-medium-latest); on Mistral-platform failure it falls back to
+        # OpenRouter (mistralai/mistral-medium-3-5, same model).
+        return call_mistral_with_fallback(messages, max_tokens, model_name=model_id, temperature=temperature)
     else:
         raise ValueError(f"Unknown primary_route: '{primary}'")
 
@@ -170,29 +186,40 @@ def _evaluate_single_prompt(
     }
 
 
+def _save_checkpoint(
+    working: pd.DataFrame,
+    new_rows: list[dict],
+    completed_keys: set[tuple],
+) -> pd.DataFrame:
+    """Append rows, dedup, persist, and update completed_keys."""
+    if not new_rows:
+        return working
+    batch_df = pd.DataFrame(new_rows)
+    working = pd.concat([working, batch_df], ignore_index=True)
+    working = dedup_behavioral(working)
+    working.to_parquet(_BEHAVIORAL_PATH, index=False)
+    for _, row in batch_df[batch_df["success_flag"] == True].iterrows():  # noqa: E712
+        completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
+    return working
+
+
 def evaluate_api_model(
     model_cfg: dict,
     pentad_df: pd.DataFrame,
     run_id: str,
     completed_keys: set[tuple],
+    working: pd.DataFrame,
     max_tokens: int = 256,
     sample_index: int = 0,
     temperature: float = 0.0,
 ) -> pd.DataFrame:
     """
-    Evaluate a single API model on the pentad dataset.
-    Skips rows already present in completed_keys.
-
-    Parameters
-    ----------
-    sample_index : int
-        0 = deterministic pass (temperature=0.0).
-        1-5 = stochastic FM4 pass (temperature=0.7, slot-a only).
-    temperature : float
-        Sampling temperature.  0.0 for deterministic, 0.7 for FM4 pass.
+    Evaluate a single API model on the pentad dataset (sequential, one call at a time).
+    Checkpoints every API_CHECKPOINT_EVERY prompts so runs can be stopped and resumed.
     """
     model_name = model_cfg["name"]
-    rows: list[dict] = []
+    pending: list[dict] = []
+    done = 0
     total = len(pentad_df)
 
     for i, (_, prow) in enumerate(pentad_df.iterrows()):
@@ -200,7 +227,6 @@ def evaluate_api_model(
         slot = prow.get("slot", "")
         subvariant = prow.get("subvariant", "")
 
-        # FM4 variance pass only runs on slot-a
         if sample_index > 0 and slot != "a":
             continue
 
@@ -209,39 +235,45 @@ def evaluate_api_model(
 
         prompt_text = str(prow.get("prompt_text", ""))
         if not prompt_text.strip() or prompt_text.strip().lower() == "none":
-            logger.debug(
-                "Skipping invalid prompt_text for prompt_id=%s (value=%r)",
-                prompt_id, prompt_text[:80],
-            )
             continue
-
-        gold_answer = str(prow.get("gold_answer", ""))
 
         row = _evaluate_single_prompt(
             model_cfg=model_cfg,
             prompt_id=prompt_id,
             prompt_text=prompt_text,
-            gold_answer=gold_answer,
+            gold_answer=str(prow.get("gold_answer", "")),
             run_id=run_id,
             seed_id=str(prow.get("seed_id", "")),
             seed_source=str(prow.get("seed_source", "")),
-            seed_category=str(prow.get("seed_category", "")),
-            seed_subcategory=str(prow.get("seed_subcategory", "")),
+            seed_category=_cell_value(prow.get("seed_category")),
+            seed_subcategory=_cell_value(prow.get("seed_subcategory")),
             slot=slot,
             subvariant=subvariant,
             max_tokens=max_tokens,
             sample_index=sample_index,
             temperature=temperature,
         )
-        rows.append(row)
+        pending.append(row)
+        done += 1
+
+        if done % API_CHECKPOINT_EVERY == 0:
+            working = _save_checkpoint(working, pending, completed_keys)
+            pending = []
+            logger.info(
+                "API %s (sample_index=%d): %d prompts done (checkpoint saved).",
+                model_name, sample_index, done,
+            )
 
         if (i + 1) % 50 == 0:
             logger.info(
-                "API %s (sample_index=%d): %d/%d prompts done.",
+                "API %s (sample_index=%d): scanned %d/%d pentad rows.",
                 model_name, sample_index, i + 1, total,
             )
 
-    return pd.DataFrame(rows)
+    if pending:
+        working = _save_checkpoint(working, pending, completed_keys)
+
+    return working
 
 
 def run_api_behavioral(
@@ -252,9 +284,8 @@ def run_api_behavioral(
     """
     Run behavioral evaluation for all 4 API models with resume logic.
 
-    Two passes per model:
-      Pass 1 (sample_index=0, temp=0.0): all slots.
-      Pass 2 (sample_index=1..5, temp=0.7): slot-a only (FM4 variance).
+    Sequential execution (one API call at a time) to avoid rate limits.
+    Checkpoints every MIRAGE_API_CHECKPOINT_EVERY prompts (default 50).
 
     Appends to existing behavioral_results.parquet.
     """
@@ -277,41 +308,26 @@ def run_api_behavioral(
 
     for model_cfg in API_MODELS:
         model_name = model_cfg["name"]
-        logger.info("API evaluation: model=%s ...", model_name)
+        logger.info("API evaluation: model=%s (sequential) ...", model_name)
 
-        # Pass 1: deterministic (all slots, sample_index=0, temp=0.0)
-        result_df = evaluate_api_model(
-            model_cfg, pentad_df, run_id, completed_keys,
+        working = evaluate_api_model(
+            model_cfg, pentad_df, run_id, completed_keys, working,
             max_tokens=max_tokens, sample_index=0, temperature=0.0,
         )
-        if len(result_df) > 0:
-            working = pd.concat([working, result_df], ignore_index=True)
-            working = dedup_behavioral(working)
-            working.to_parquet(_BEHAVIORAL_PATH, index=False)
-            for _, row in result_df[result_df["success_flag"] == True].iterrows():  # noqa: E712
-                completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
-            logger.info("  Saved %d new rows for %s (deterministic pass).", len(result_df), model_name)
+        logger.info("  Deterministic pass complete for %s.", model_name)
 
-        # Pass 2: stochastic FM4 variance (slot-a only, 5 samples at temp=0.7)
-        logger.info("  FM4 variance pass: model=%s, %d samples at temp=%.1f ...",
-                    model_name, _FM4_N_SAMPLES, _FM4_TEMPERATURE)
+        logger.info(
+            "  FM4 variance pass: model=%s, %d samples at temp=%.1f ...",
+            model_name, _FM4_N_SAMPLES, _FM4_TEMPERATURE,
+        )
         for sample_idx in range(1, _FM4_N_SAMPLES + 1):
-            var_df = evaluate_api_model(
-                model_cfg, pentad_df, run_id, completed_keys,
+            working = evaluate_api_model(
+                model_cfg, pentad_df, run_id, completed_keys, working,
                 max_tokens=max_tokens,
                 sample_index=sample_idx,
                 temperature=_FM4_TEMPERATURE,
             )
-            if len(var_df) > 0:
-                working = pd.concat([working, var_df], ignore_index=True)
-                working = dedup_behavioral(working)
-                working.to_parquet(_BEHAVIORAL_PATH, index=False)
-                for _, row in var_df[var_df["success_flag"] == True].iterrows():  # noqa: E712
-                    completed_keys.add((row["prompt_id"], row["model_name"], int(row["sample_index"])))
-                logger.info(
-                    "    Saved %d rows for %s (sample_index=%d).",
-                    len(var_df), model_name, sample_idx,
-                )
+            logger.info("    sample_index=%d complete for %s.", sample_idx, model_name)
 
     final = dedup_behavioral(working) if len(working) > 0 else pd.DataFrame()
     if len(final) > 0:

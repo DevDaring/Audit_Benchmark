@@ -1,8 +1,11 @@
 """
 File: CPU_Only/judge_router.py
 Purpose: Optional judge / answer extraction for malformed JSON responses.
-         Routes to Gemini (default), DeepSeek, or Mistral. No automatic
+         Routes to DeepSeek (default), Gemini, or Mistral. No automatic
          cross-provider fallback -- if the chosen provider fails, returns None.
+
+         DeepSeek is the default because the GCP/Gemini route was rate-limited
+         during the full sequential run; Gemini remains selectable but off by default.
 
 Implements / builds on / cites:
   - Kalaitzidis (2026). "The Evaluation Trap." arXiv:2605.14167
@@ -102,7 +105,7 @@ def _call_mistral_judge(raw_response: str) -> dict | None:
         return None
 
 
-def judge(raw_response: str, provider: str = "gemini") -> tuple[dict | None, str]:
+def judge(raw_response: str, provider: str = "deepseek") -> tuple[dict | None, str]:
     """
     Attempt to extract structured answer from a malformed raw response.
 
@@ -111,7 +114,7 @@ def judge(raw_response: str, provider: str = "gemini") -> tuple[dict | None, str
     raw_response : str
         Raw model output that failed deterministic JSON parsing.
     provider : str
-        'gemini' | 'deepseek' | 'mistral'. No automatic fallback between providers.
+        'deepseek' (default) | 'gemini' | 'mistral'. No automatic fallback between providers.
 
     Returns
     -------

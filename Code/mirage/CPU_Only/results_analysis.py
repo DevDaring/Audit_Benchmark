@@ -16,7 +16,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import FIGURES_DIR, RESULTS_DIR, ensure_dirs
+from config import FIGURES_DIR, OSM_MODELS, RESULTS_DIR, ensure_dirs
+
+_OSM_NAMES = {m["name"] for m in OSM_MODELS}
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +152,12 @@ def run_results_analysis() -> None:
             "Overall MIRAGE-B pass rate: %.3f",
             scored["mirage_b_pass"].mean(),
         )
-        logger.info(
-            "Overall MIRAGE-Full pass rate: %.3f",
-            scored["mirage_full_pass"].mean(),
-        )
+        osm_scored = scored[scored["model_name"].isin(_OSM_NAMES)]
+        if len(osm_scored) > 0:
+            logger.info(
+                "Overall MIRAGE-Full pass rate (OSM only): %.3f",
+                osm_scored["mirage_full_pass"].dropna().mean(),
+            )
 
     plot_mirage_b_pass_rates(scored)
     plot_cdva_distribution(cdva)

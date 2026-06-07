@@ -21,8 +21,10 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import RESULTS_DIR, ensure_dirs
+from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
 from CPU_Only.scoring import _answers_match
+
+_OSM_NAMES = {m["name"] for m in OSM_MODELS}
 
 logger = logging.getLogger(__name__)
 
@@ -70,13 +72,21 @@ def build_validity_gap_table(
                 _native_pass(b_beh, sid, model_name)
                 for sid in seeds
             ]
-            mirage = b_scored[
-                (b_scored["model_name"] == model_name)
-            ].set_index("seed_id")["mirage_full_pass"].reindex(seeds).fillna(False)
-
             n = len(seeds)
             native_rate = sum(native) / n if n else 0.0
-            mirage_rate = float(mirage.astype(bool).sum()) / n if n else 0.0
+
+            if model_name in _OSM_NAMES:
+                mirage = b_scored[
+                    (b_scored["model_name"] == model_name)
+                ].set_index("seed_id")["mirage_full_pass"].reindex(seeds)
+                mirage_valid = mirage.dropna().astype(bool)
+                mirage_rate = float(mirage_valid.sum()) / n if n else 0.0
+                gap = native_rate - mirage_rate
+            else:
+                # API models: MIRAGE-Full not defined (no CDVA).
+                mirage_rate = float("nan")
+                gap = float("nan")
+
             records.append(
                 {
                     "benchmark": benchmark,
@@ -84,7 +94,7 @@ def build_validity_gap_table(
                     "n_seeds": n,
                     "native_pass_rate": native_rate,
                     "mirage_full_pass_rate": mirage_rate,
-                    "validity_gap": native_rate - mirage_rate,
+                    "validity_gap": gap,
                 }
             )
     return pd.DataFrame(records)

@@ -25,3 +25,7 @@ akash/deployment.yaml
 
 # Akash VM SSH details (contains IP/port of live VM)
 akash/vm_ssh.txt
+
+# Stray local logs (transient — not for version control)
+/LOG
+*.log
