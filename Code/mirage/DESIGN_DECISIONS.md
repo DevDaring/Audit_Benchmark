@@ -152,7 +152,7 @@ results/
 |---|---|---|---|---|
 | API-1 | `qwen3-next-80b-a3b` | `qwen.qwen3-next-80b-a3b` | AWS Bedrock (account 1) | OpenRouter `qwen/qwen3-next-80b-a3b-instruct` (2 keys, round-robin) |
 | API-2 | `amazon-nova-2-lite` | `us.amazon.nova-2-lite-v1:0` | AWS Bedrock (account 1) | OpenRouter `amazon/nova-lite-v1` (2 keys, round-robin) |
-| API-3 | `gemini-2.5-flash` | `gemini-2.5-flash` | MegaLLM gateway (single key, 2 attempts) | LinkAPI gateway (geminicheap group, single key, 2 attempts) → OpenRouter `google/gemini-2.5-flash` (2 keys, round-robin) |
+| API-3 | `gemini-2.5-flash` | `gemini-2.5-flash` | LinkAPI gateway (geminicheap group, single key, 2 attempts) | OpenRouter `google/gemini-2.5-flash` (2 keys, round-robin) → MegaLLM (single key, 2 attempts, last resort). MegaLLM was the original primary but its gemini credits were exhausted mid-run, so LinkAPI was promoted to primary. |
 | API-4 | `mistral-medium` | `mistral-medium-latest` | Mistral platform (2 keys, round-robin) | OpenRouter `mistralai/mistral-medium-3-5` (2 keys, round-robin) |
 
 **Reasons:**

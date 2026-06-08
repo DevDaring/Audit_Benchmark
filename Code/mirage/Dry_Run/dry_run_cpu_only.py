@@ -71,7 +71,7 @@ def _test_bedrock_nova_lite() -> bool:
 
 
 def _test_megallm() -> bool:
-    # API-3: gemini-2.5-flash, full chain MegaLLM -> LinkAPI -> OpenRouter.
+    # API-3: gemini-2.5-flash, full chain LinkAPI -> OpenRouter -> MegaLLM.
     try:
         from CPU_Only.api_clients.megallm_client import call_megallm_with_fallback
         result = call_megallm_with_fallback("gemini-2.5-flash", _MESSAGES, max_tokens=128)

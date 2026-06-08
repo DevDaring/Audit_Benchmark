@@ -13,7 +13,7 @@ MIRAGE (Mechanism-Indexed Reliability Audit for Group-bias Evaluation) is a disc
 
 **Eight models total:**
 - **4 OSM (open-source, GPU):** Llama-3.1-8B, Qwen2.5-7B, Gemma-2-2B, Phi-4-mini — behavioral + CDVA (causal activation patching)
-- **4 API (cloud, CPU only):** qwen3-next-80b-a3b (Bedrock→OpenRouter), amazon-nova-2-lite (Bedrock→OpenRouter), gemini-2.5-flash (MegaLLM→LinkAPI→OpenRouter), mistral-medium (Mistral→OpenRouter) — behavioral only (no CDVA)
+- **4 API (cloud, CPU only):** qwen3-next-80b-a3b (Bedrock→OpenRouter), amazon-nova-2-lite (Bedrock→OpenRouter), gemini-2.5-flash (LinkAPI→OpenRouter→MegaLLM), mistral-medium (Mistral→OpenRouter) — behavioral only (no CDVA)
 
 **Core metrics:**
 - **MIRAGE-B** — behavioral validity (slots a–e, gold-answer based)
@@ -345,7 +345,7 @@ Update `Analysis/analysis.md` with API model results. Re-run `python run_cpu_pos
 1. **CDVA analysis:** Always filter `position_fallback_used == False`
 2. **MIRAGE-Full:** Only report for OSM models (API models have no CDVA — use MIRAGE-B only for API)
 3. **Tau:** Disclose 75th-percentile calibration; dev-seed calibration is future work
-4. **API routing/versions:** all four API models have an OpenRouter secondary fallback to the same model — API-1 `qwen3-next-80b-a3b` and API-2 `amazon-nova-2-lite` (AWS Bedrock → OpenRouter), API-3 `gemini-2.5-flash` (MegaLLM → LinkAPI `geminicheap` → OpenRouter `google/gemini-2.5-flash`), API-4 `mistral-medium` (Mistral → OpenRouter `mistralai/mistral-medium-3-5`). DeepSeek is generator + JSON-repair judge only (not evaluated), so no evaluated model is also a probe generator. Record the `route_used` column and disclose that `gemini-2.5-flash`, `mistral-medium-latest`, and the OpenRouter aliases track provider "latest" snapshots (pin dated versions for full reproducibility).
+4. **API routing/versions:** all four API models have an OpenRouter secondary fallback to the same model — API-1 `qwen3-next-80b-a3b` and API-2 `amazon-nova-2-lite` (AWS Bedrock → OpenRouter), API-3 `gemini-2.5-flash` (LinkAPI `geminicheap` → OpenRouter `google/gemini-2.5-flash` → MegaLLM; MegaLLM dropped to last after its gemini credits were exhausted mid-run), API-4 `mistral-medium` (Mistral → OpenRouter `mistralai/mistral-medium-3-5`). DeepSeek is generator + JSON-repair judge only (not evaluated), so no evaluated model is also a probe generator. Record the `route_used` column and disclose that `gemini-2.5-flash`, `mistral-medium-latest`, and the OpenRouter aliases track provider "latest" snapshots (pin dated versions for full reproducibility).
 5. **Parse failures:** Qwen 1.15%, Phi 1.24% — exclude from MIRAGE-B via `success_flag=False`, not a validity signal
 6. **Do not mix** dry-run or test results with production — production `run_id` is in parquet metadata
 

@@ -483,7 +483,7 @@ Pre-registered methods in `CPU_Only/statistics.py`:
 | OSM-4 | Phi-4-mini-instruct | Behavioural + CDVA |
 | API-1 | qwen3-next-80b-a3b (Bedrock → OpenRouter) | Behavioural only |
 | API-2 | amazon-nova-2-lite (Bedrock → OpenRouter) | Behavioural only |
-| API-3 | gemini-2.5-flash (MegaLLM → LinkAPI → OpenRouter) | Behavioural only |
+| API-3 | gemini-2.5-flash (LinkAPI → OpenRouter → MegaLLM) | Behavioural only |
 | API-4 | mistral-medium (Mistral → OpenRouter) | Behavioural only |
 | Generator/Judge | DeepSeek (deepseek-chat) | Slot (d)/(e) generation and JSON-repair judge — **not evaluated** |
 
