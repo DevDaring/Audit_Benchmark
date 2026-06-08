@@ -149,6 +149,14 @@ def _evaluate_single_prompt(
             parsed_answer = str(parsed.get("answer", ""))
             parsed_confidence = float(parsed.get("confidence", 0.0))
             parsed_rationale = str(parsed.get("rationale", ""))
+            if not parsed_answer.strip():
+                # Parsed/judged to an empty answer (e.g. a truncated response with
+                # no extractable answer). Not a usable result -> mark as failure so
+                # it is retried and excluded from scoring, never stored as a
+                # successful empty/hallucinated row.
+                parse_method = "failed"
+                success_flag = False
+                failure_reason = "empty_answer"
         else:
             parse_method = "failed"
             success_flag = False

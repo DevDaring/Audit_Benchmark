@@ -36,8 +36,11 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 60
 _JUDGE_SYSTEM = (
     "You are a JSON repair assistant. The following text is a malformed or incomplete "
-    "response from a language model. Extract the answer, confidence, and rationale. "
-    'Return ONLY valid JSON: {"answer": "<answer>", "confidence": <0.0-1.0>, "rationale": "<one sentence>"}'
+    "response from a language model. Extract ONLY what is actually present: the answer, "
+    "confidence, and rationale. If the text is truncated, empty, or contains no clear "
+    'answer, set "answer" to an empty string "". Never invent, guess, or add an answer '
+    "that is not present in the text. "
+    'Return ONLY valid JSON: {"answer": "<answer or empty>", "confidence": <0.0-1.0>, "rationale": "<one sentence>"}'
 )
 
 

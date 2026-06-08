@@ -77,7 +77,19 @@ def _call_openai_compatible(
         if temperature > 0.0:
             call_kwargs["temperature"] = temperature
         response = client.chat.completions.create(**call_kwargs)
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        # gemini-2.5-flash is a reasoning model: hidden "thinking" tokens count
+        # against max_tokens. If the budget is exhausted the visible answer is
+        # truncated (finish_reason="length") to a useless fragment. Treat that as
+        # a failure (fall through / retry) instead of returning garbage that the
+        # judge would then hallucinate an answer from.
+        if getattr(choice, "finish_reason", None) == "length":
+            logger.warning(
+                "Truncated response (finish_reason=length, model=%s); treating as failure.",
+                model_id,
+            )
+            return None
+        return choice.message.content or ""
     except Exception as exc:
         logger.warning("MegaLLM/OpenRouter call failed (model=%s): %s", model_id, exc)
         return None
@@ -101,6 +113,12 @@ def call_megallm_with_fallback(
     """
     attempt_count = 0
     t0 = time.monotonic()
+
+    # gemini-2.5-flash spends ~250-450 hidden reasoning tokens per call, which
+    # count against max_tokens; a small budget (e.g. 256) truncates the answer.
+    # Reasoning cannot be disabled via these gateways (reasoning_effort /
+    # thinking_budget are ignored), so give generous headroom instead.
+    max_tokens = max(max_tokens, 2048)
 
     # Primary: LinkAPI gateway (single key, geminicheap group). Leads because
     # MegaLLM ran out of gemini credits mid-run; see module docstring.
