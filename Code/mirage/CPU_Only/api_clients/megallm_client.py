@@ -114,11 +114,14 @@ def call_megallm_with_fallback(
     attempt_count = 0
     t0 = time.monotonic()
 
-    # gemini-2.5-flash spends ~250-450 hidden reasoning tokens per call, which
-    # count against max_tokens; a small budget (e.g. 256) truncates the answer.
-    # Reasoning cannot be disabled via these gateways (reasoning_effort /
-    # thinking_budget are ignored), so give generous headroom instead.
-    max_tokens = max(max_tokens, 2048)
+    # gemini-2.5-flash spends hidden reasoning tokens per call (commonly 250-450,
+    # but adversarial CoT/context prompts can exceed 2000), which count against
+    # max_tokens; too small a budget truncates the answer. Reasoning cannot be
+    # disabled via these gateways (reasoning_effort / thinking_budget are
+    # ignored). Raising the ceiling never makes the model reason more -- it only
+    # turns truncations into complete answers (and avoids the slow fallback
+    # chain) -- so give a large headroom.
+    max_tokens = max(max_tokens, 8192)
 
     # Primary: LinkAPI gateway (single key, geminicheap group). Leads because
     # MegaLLM ran out of gemini credits mid-run; see module docstring.
