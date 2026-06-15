@@ -29,6 +29,22 @@ log = setup_logging("run_gpu_remaining")
 DRY = RESULTS / "dryrun"
 
 
+def _install_attn_fallback():
+    """If flash_attention_2 is unavailable, fall back to sdpa so load_model still works."""
+    import transformers
+    orig = transformers.AutoModelForCausalLM.from_pretrained.__func__
+    def patched(cls, *a, **k):
+        try:
+            return orig(cls, *a, **k)
+        except Exception as e:
+            if k.get("attn_implementation") == "flash_attention_2":
+                log.warning("flash_attention_2 failed (%s); retrying with sdpa", str(e)[:120])
+                k["attn_implementation"] = "sdpa"
+                return orig(cls, *a, **k)
+            raise
+    transformers.AutoModelForCausalLM.from_pretrained = classmethod(patched)
+
+
 def _import_tasks():
     import gpu_tasks
     return gpu_tasks
@@ -141,6 +157,10 @@ def main():
 
     load_dotenv(HERE / ".env")
     os.environ.setdefault("MIRAGE_SEQUENTIAL_MODELS", "1")
+    try:
+        _install_attn_fallback()
+    except Exception as exc:
+        log.warning("attn fallback install skipped: %s", exc)
     T = _import_tasks()
     pentad = load_pentad()
     cdva = load_cdva_pairs()
