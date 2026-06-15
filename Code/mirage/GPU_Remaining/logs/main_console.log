@@ -2,7 +2,9 @@
 2026-06-15 15:03:14,460 | INFO | run_gpu_remaining | loaded pentad=7152 rows, cdva pairs=23840
 2026-06-15 15:03:14,467 | INFO | run_gpu_remaining | === model llama-3.1-8b-instruct (limit=None) ===
 2026-06-15 15:03:14,467 | INFO | GPU_CPU.load_osm | Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files:  25%|██▌       | 1/4 [00:50<02:30, 50.19s/it]Fetching 4 files:  50%|█████     | 2/4 [00:50<00:42, 21.03s/it]Fetching 4 files: 100%|██████████| 4/4 [00:50<00:00, 12.70s/it]
 2026-06-15 15:04:11,781 | WARNING | run_gpu_remaining | flash_attention_2 failed (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to b); retrying with sdpa
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:01<00:05,  1.73s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:02<00:02,  1.37s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:03<00:01,  1.24s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:04<00:00,  1.19it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:04<00:00,  1.04s/it]
 2026-06-15 15:04:16,859 | INFO | GPU_CPU.load_osm |   Model llama-3.1-8b-instruct               | attention impl: sdpa
 2026-06-15 15:04:16,859 | WARNING | GPU_CPU.load_osm |   WARNING: llama-3.1-8b-instruct did not load with flash_attention_2 (got 'sdpa').
 2026-06-15 15:04:16,859 | INFO | GPU_CPU.load_osm | Model 'llama-3.1-8b-instruct' loaded successfully.
