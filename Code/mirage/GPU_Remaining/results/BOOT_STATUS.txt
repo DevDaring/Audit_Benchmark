@@ -1,1 +1,1 @@
-container started; installing deps (nvidia-smi: GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-416e4f14-a193-67d8-613a-f47d729357b4)) @ Mon Jun 15 14:40:49 UTC 2026
+FATAL: patching libs import failed (see main_console/dryrun logs) @ Mon Jun 15 14:44:55 UTC 2026
