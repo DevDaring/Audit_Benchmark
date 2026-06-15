@@ -1,0 +1,63 @@
+2026-06-15 14:58:41,334 | INFO | run_gpu_remaining | patching libs OK: transformer_lens=2.18.0 nnsight=0.3.7
+2026-06-15 14:58:41,434 | INFO | run_gpu_remaining | loaded pentad=7152 rows, cdva pairs=23840
+2026-06-15 14:58:41,438 | INFO | run_gpu_remaining | === model gemma-2-2b-it (limit=2) ===
+2026-06-15 14:58:41,439 | INFO | GPU_CPU.load_osm | Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [00:20<00:20, 20.10s/it]Fetching 2 files: 100%|██████████| 2/2 [00:20<00:00, 10.05s/it]
+2026-06-15 14:59:11,930 | WARNING | run_gpu_remaining | flash_attention_2 failed (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to b); retrying with sdpa
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.76s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.09it/s]
+2026-06-15 14:59:14,665 | INFO | GPU_CPU.load_osm |   Model gemma-2-2b-it                       | attention impl: sdpa
+2026-06-15 14:59:14,665 | WARNING | GPU_CPU.load_osm |   WARNING: gemma-2-2b-it did not load with flash_attention_2 (got 'sdpa').
+2026-06-15 14:59:14,665 | INFO | GPU_CPU.load_osm | Model 'gemma-2-2b-it' loaded successfully.
+2026-06-15 14:59:18,588 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=0, batch_size=8).
+2026-06-15 14:59:20,161 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=1, batch_size=8).
+2026-06-15 14:59:21,665 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=2, batch_size=8).
+2026-06-15 14:59:23,250 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=3, batch_size=8).
+2026-06-15 14:59:24,922 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=4, batch_size=8).
+2026-06-15 14:59:26,674 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=5, batch_size=8).
+2026-06-15 14:59:26,676 | INFO | run_gpu_remaining |   T0.1 rows=12
+2026-06-15 14:59:28,108 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=1, batch_size=8).
+2026-06-15 14:59:29,438 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=2, batch_size=8).
+2026-06-15 14:59:31,311 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=3, batch_size=8).
+2026-06-15 14:59:32,814 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=4, batch_size=8).
+2026-06-15 14:59:34,541 | INFO | GPU_CPU.osm_behavioral | OSM gemma-2-2b-it: 2/2 prompts done (sample_index=5, batch_size=8).
+2026-06-15 14:59:34,545 | INFO | run_gpu_remaining |   T1.2 rows=10
+2026-06-15 14:59:34,707 | INFO | GPU_CPU.utils_attention | Converting HF model 'google/gemma-2-2b-it' to HookedTransformer for CDVA patching ...
+Loaded pretrained model google/gemma-2-2b-it into HookedTransformer
+Moving model to device:  cuda
+2026-06-15 15:00:21,641 | INFO | GPU_CPU.utils_attention | HookedTransformer for 'google/gemma-2-2b-it' cached (device=cuda:0).
+2026-06-15 15:00:28,611 | INFO | run_gpu_remaining |   T0.2 rows=8
+2026-06-15 15:00:28,859 | INFO | GPU_CPU.load_osm | Model 'gemma-2-2b-it' unloaded and VRAM freed.
+2026-06-15 15:00:29,034 | INFO | run_gpu_remaining |   T0.2 recovery sample: [nan, -0.6764705882352942, nan, nan] (finite=1/8)
+2026-06-15 15:00:29,037 | INFO | run_gpu_remaining | === model phi-4-mini-instruct (limit=2) ===
+2026-06-15 15:00:29,040 | INFO | GPU_CPU.load_osm | Loading model: phi-4-mini-instruct (microsoft/Phi-4-mini-instruct) ...
+A new version of the following files was downloaded from https://huggingface.co/microsoft/Phi-4-mini-instruct:
+- configuration_phi3.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/microsoft/Phi-4-mini-instruct:
+- modeling_phi3.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+Fetching 2 files:   0%|          | 0/2 [00:00<?, ?it/s]Fetching 2 files:  50%|█████     | 1/2 [00:28<00:28, 28.89s/it]Fetching 2 files: 100%|██████████| 2/2 [00:28<00:00, 14.45s/it]
+2026-06-15 15:01:09,781 | WARNING | run_gpu_remaining | flash_attention_2 failed (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to b); retrying with sdpa
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.19s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.18it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.11it/s]
+2026-06-15 15:01:13,233 | INFO | GPU_CPU.load_osm |   Model phi-4-mini-instruct                 | attention impl: sdpa
+2026-06-15 15:01:13,233 | WARNING | GPU_CPU.load_osm |   WARNING: phi-4-mini-instruct did not load with flash_attention_2 (got 'sdpa').
+2026-06-15 15:01:13,234 | INFO | GPU_CPU.load_osm | Model 'phi-4-mini-instruct' loaded successfully.
+2026-06-15 15:01:38,731 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=0, batch_size=8).
+2026-06-15 15:01:44,956 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=1, batch_size=8).
+2026-06-15 15:02:10,583 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=2, batch_size=8).
+2026-06-15 15:02:16,941 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=3, batch_size=8).
+2026-06-15 15:02:23,213 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=4, batch_size=8).
+2026-06-15 15:02:29,603 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=5, batch_size=8).
+2026-06-15 15:02:29,605 | INFO | run_gpu_remaining |   T0.1 rows=12
+2026-06-15 15:02:35,479 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=1, batch_size=8).
+2026-06-15 15:02:41,531 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=2, batch_size=8).
+2026-06-15 15:02:47,994 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=3, batch_size=8).
+2026-06-15 15:02:54,288 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=4, batch_size=8).
+2026-06-15 15:03:00,757 | INFO | GPU_CPU.osm_behavioral | OSM phi-4-mini-instruct: 2/2 prompts done (sample_index=5, batch_size=8).
+2026-06-15 15:03:00,760 | INFO | run_gpu_remaining |   T1.2 rows=10
+2026-06-15 15:03:00,891 | INFO | GPU_CPU.utils_attention | Creating nnsight LanguageModel wrapper for 'microsoft/Phi-4-mini-instruct' (cached).
+You're using a GPT2TokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+2026-06-15 15:03:03,168 | INFO | run_gpu_remaining |   T0.2 rows=8
+2026-06-15 15:03:03,478 | INFO | GPU_CPU.load_osm | Model 'phi-4-mini-instruct' unloaded and VRAM freed.
+2026-06-15 15:03:03,591 | INFO | run_gpu_remaining |   T0.2 recovery sample: [nan, nan, nan, nan] (finite=0/8)
+2026-06-15 15:03:03,591 | INFO | run_gpu_remaining | DRY RESULT: PASS
