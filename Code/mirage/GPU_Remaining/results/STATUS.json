@@ -1,6 +1,18 @@
 {
   "done": [
     [
+      "gemma-2-2b-it",
+      "t01_temp"
+    ],
+    [
+      "gemma-2-2b-it",
+      "t02_recovery"
+    ],
+    [
+      "gemma-2-2b-it",
+      "t12_order"
+    ],
+    [
       "llama-3.1-8b-instruct",
       "t01_temp"
     ],
