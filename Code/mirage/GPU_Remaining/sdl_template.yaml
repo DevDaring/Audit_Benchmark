@@ -21,17 +21,22 @@ services:
       - HUGGINGFACE_TOKEN=__HF_TOKEN__
       - Github_Classic_Token=__GH_TOKEN__
       - RANDOM_SEED=20260101
+    expose:
+      - port: 8080
+        as: 80
+        to:
+          - global: true
 
 profiles:
   compute:
     gpu:
       resources:
         cpu:
-          units: 12
+          units: 8
         memory:
-          size: 64Gi
+          size: 48Gi
         storage:
-          - size: 200Gi
+          - size: 120Gi
         gpu:
           units: 1
           attributes:
