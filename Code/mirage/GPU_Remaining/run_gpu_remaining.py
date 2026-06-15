@@ -178,11 +178,13 @@ def main():
     # transformer_lens must fail here (exit non-zero -> supervisor retries with
     # a freshly pulled/installed env) rather than silently yielding empty
     # TransformerLens (llama/gemma) T0.2 results 15 minutes into the run.
-    import transformer_lens
-    import nnsight
+    import transformer_lens  # noqa: F401
+    import nnsight  # noqa: F401
+    import importlib.metadata as _md
+    # NB: transformer_lens 2.18.0 exposes no module-level __version__; read it from
+    # package metadata instead (a direct .__version__ access raises AttributeError).
     log.info("patching libs OK: transformer_lens=%s nnsight=%s",
-             getattr(transformer_lens, "__version__", "?"),
-             getattr(nnsight, "__version__", "?"))
+             _md.version("transformer_lens"), _md.version("nnsight"))
 
     T = _import_tasks()
     pentad = load_pentad()

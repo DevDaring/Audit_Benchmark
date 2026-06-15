@@ -72,9 +72,13 @@ echo "[bootstrap] transformer_lens 2.18.0 (--no-deps so it keeps torch 2.5.1 / t
 $PIP --no-deps transformer_lens==2.18.0
 
 echo "[bootstrap] verify patching libraries import (fail loud BEFORE the run)"
-if ! python3 -c "import transformer_lens, nnsight; print('TL', transformer_lens.__version__, '| nnsight', nnsight.__version__)"; then
+python3 -c "import transformer_lens, nnsight; import importlib.metadata as m; print('TL', m.version('transformer_lens'), '| nnsight', m.version('nnsight'))" > "$GR/logs/verify.log" 2>&1
+VRC=$?
+cat "$GR/logs/verify.log"
+git -C "$REPO" add -f Code/mirage/GPU_Remaining/logs/verify.log >/dev/null 2>&1
+if [ "$VRC" -ne 0 ]; then
     echo "[bootstrap] FATAL: transformer_lens / nnsight import failed -- container kept alive for inspection"
-    push_logs "FATAL: patching libs import failed (see main_console/dryrun logs)"
+    push_logs "FATAL: patching libs import failed (full traceback in logs/verify.log)"
     sleep infinity
 fi
 
