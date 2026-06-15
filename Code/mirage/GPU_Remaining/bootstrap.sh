@@ -84,7 +84,8 @@ echo "[bootstrap] setup complete -- marker push"
 push_logs "setup complete; starting dry-run"
 
 echo "[bootstrap] DRY RUN (2 instances)"
-python3 run_gpu_remaining.py --mode dry; DRY_RC=$?
+python3 run_gpu_remaining.py --mode dry > "$GR/logs/dryrun_console.log" 2>&1; DRY_RC=$?
+tail -50 "$GR/logs/dryrun_console.log"
 echo "[bootstrap] dry-run rc=$DRY_RC"
 push_logs "dry-run rc=$DRY_RC"
 if [ "$DRY_RC" -ne 0 ]; then
@@ -100,7 +101,8 @@ ATTEMPT=0
 while true; do
     ATTEMPT=$((ATTEMPT+1))
     echo "[bootstrap] main attempt $ATTEMPT"
-    python3 run_gpu_remaining.py --mode main && break
+    python3 run_gpu_remaining.py --mode main > "$GR/logs/main_console.log" 2>&1 && break
+    tail -30 "$GR/logs/main_console.log"; push_logs "main attempt $ATTEMPT exited non-zero"
     echo "[bootstrap] main exited non-zero; retry in 60s"
     sleep 60
 done
