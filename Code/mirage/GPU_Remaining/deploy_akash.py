@@ -43,6 +43,11 @@ def _api(method: str, path: str, key: str, body: dict | None = None) -> tuple[in
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     req.add_header("x-api-key", key)
+    # Cloudflare in front of console-api blocks the default Python-urllib UA (error 1010);
+    # send a normal browser User-Agent so POST/DELETE are not rejected.
+    req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    req.add_header("Accept", "application/json")
     if data is not None:
         req.add_header("Content-Type", "application/json")
     try:
