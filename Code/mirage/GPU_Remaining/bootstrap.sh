@@ -55,6 +55,8 @@ push_logs() {
   mkdir -p "$GR/results" "$GR/logs"
   echo "$1 @ $(date -u)" > "$GR/results/BOOT_STATUS.txt"
   git -C "$REPO" add -f Code/mirage/GPU_Remaining/results Code/mirage/GPU_Remaining/logs >/dev/null 2>&1
+  # never push the dry-run TEST results -- only real main-run results belong on GitHub
+  git -C "$REPO" reset -q -- Code/mirage/GPU_Remaining/results/dryrun >/dev/null 2>&1
   git -C "$REPO" commit -q -m "gpu-boot: $1" >/dev/null 2>&1
   git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1
   git -C "$REPO" push -q origin main >/dev/null 2>&1 && echo "[bootstrap] pushed: $1"

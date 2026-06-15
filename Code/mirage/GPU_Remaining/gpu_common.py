@@ -95,6 +95,8 @@ def push_checkpoint(message: str) -> bool:
     rel_results = "Code/mirage/GPU_Remaining/results"
     rel_logs = "Code/mirage/GPU_Remaining/logs"
     _run(["git", "add", "-f", rel_results, rel_logs])
+    # never push the dry-run TEST results -- only real main-run results belong on GitHub
+    _run(["git", "reset", "-q", "--", rel_results + "/dryrun"])
     status = _run(["git", "status", "--porcelain"]).stdout.strip()
     if not status:
         return False
