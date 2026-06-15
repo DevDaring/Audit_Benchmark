@@ -25,6 +25,18 @@
       "t12_order"
     ],
     [
+      "phi-4-mini-instruct",
+      "t01_temp"
+    ],
+    [
+      "phi-4-mini-instruct",
+      "t02_recovery"
+    ],
+    [
+      "phi-4-mini-instruct",
+      "t12_order"
+    ],
+    [
       "qwen2.5-7b-instruct",
       "t01_temp"
     ],
