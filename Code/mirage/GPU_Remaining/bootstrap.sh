@@ -25,13 +25,22 @@ cd "$GR"
 echo "[bootstrap] write .env from injected secrets (gitignored, local only)"
 python3 - <<'PY'
 import os
-keys = ["HUGGINGFACE_TOKEN", "Github_Classic_Token", "RANDOM_SEED"]
+real_keys = ["HUGGINGFACE_TOKEN", "Github_Classic_Token", "RANDOM_SEED"]
+# config.py _require()s these 12 at import; the OSM GPU job never calls them,
+# so dummy non-empty values satisfy validation without exposing real API keys.
+dummy_keys = ["DEEPSEEK_API_KEY_1", "DEEPSEEK_API_KEY_2",
+              "OPENROUTER_API_KEY_1", "OPENROUTER_API_KEY_2",
+              "GEMINI_API_KEY_1", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3", "GEMINI_API_KEY_4",
+              "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "MISTRAL_API_KEY1", "MISTRAL_API_KEY2"]
+n = 0
 with open(".env", "w") as f:
-    for k in keys:
+    for k in real_keys:
         v = os.environ.get(k, "")
         if v:
-            f.write(f"{k}={v}\n")
-print("wrote .env with", sum(1 for k in keys if os.environ.get(k)), "secrets")
+            f.write(f"{k}={v}\n"); n += 1
+    for k in dummy_keys:
+        f.write(f"{k}=unused-by-osm-gpu-job\n")
+print(f"wrote .env with {n} real secrets + {len(dummy_keys)} dummy api keys")
 PY
 
 echo "[bootstrap] configure git for result/log pushes"
