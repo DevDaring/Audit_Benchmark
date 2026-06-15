@@ -6,7 +6,7 @@ version: "2.0"
 
 services:
   gpu:
-    image: nvidia/cuda:12.4.1-cudnn-devel-ubuntu24.04
+    image: nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04
     command:
       - bash
       - -c
