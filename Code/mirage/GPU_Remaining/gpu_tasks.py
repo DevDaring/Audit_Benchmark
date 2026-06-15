@@ -61,6 +61,14 @@ def run_t02_recovery(model_cfg, model, tokenizer, cdva_pairs, pentad_df, limit=N
     """
     name = model_cfg["name"]
     lib = model_cfg["patching_lib"]
+    # Fail loud and early if the patching library cannot be imported. Without
+    # this, a missing transformer_lens raises the SAME ImportError on every one
+    # of the ~6000 pairs (all swallowed below), yielding a silent empty frame
+    # that gets marked "done" -- the bug that produced empty llama/gemma T0.2.
+    if "nnsight" in str(lib).lower():
+        import nnsight  # noqa: F401
+    else:
+        import transformer_lens  # noqa: F401
     sub = cdva_pairs[cdva_pairs["model_name"] == name]
     if limit:
         sub = sub.head(limit)
@@ -109,6 +117,10 @@ def run_t02_recovery(model_cfg, model, tokenizer, cdva_pairs, pentad_df, limit=N
 
 def summarize_recovery(df: pd.DataFrame) -> dict:
     out = {}
+    # An empty recovery frame (0 rows -> no columns) must not crash the run:
+    # df.groupby("model_name") on a column-less frame raises KeyError. Guard it.
+    if df is None or len(df) == 0 or "model_name" not in df.columns:
+        return out
     for name, g in df.groupby("model_name"):
         u = g[g["used"]]
         out[name] = {

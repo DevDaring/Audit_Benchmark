@@ -16,8 +16,10 @@ behaviour matches the original run.
 
 ## Run order (handled automatically by `bootstrap.sh`)
 
-1. Install deps (torch 2.5.1 cu124, transformers 4.50.3, transformer_lens 2.9.0, nnsight 0.3.7)
-   and the precompiled flash-attn wheel (cu12/torch2.5/cp312).
+1. Install deps (torch 2.5.1 cu124, transformers 4.50.3, nnsight 0.3.7, then
+   transformer_lens 2.18.0 via `--no-deps` so it keeps torch 2.5.1 / transformers 4.50.3 --
+   this is the version the production CDVA run used, README sec 9.4) and the precompiled
+   flash-attn wheel (cu12/torch2.5/cp312; optional, sdpa fallback is numerically identical).
 2. Download the 4 OSM models (the pentad dataset + `cdva_results.parquet` ship in the repo).
 3. **Dry run** (`--mode dry`): exercises all three tasks on 2 models (one TransformerLens,
    one nnsight) with 2 instances each. On pass, deletes `results/dryrun` + test logs.

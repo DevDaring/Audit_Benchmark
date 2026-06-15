@@ -50,6 +50,18 @@ def _import_tasks():
     return gpu_tasks
 
 
+def _parquet_nonempty(path) -> bool:
+    """A task unit counts as complete only if its parquet exists AND has rows.
+    A 0-row parquet (e.g. the old empty TransformerLens T0.2) must be re-run."""
+    if not path.exists():
+        return False
+    try:
+        import pyarrow.parquet as pq
+        return pq.ParquetFile(str(path)).metadata.num_rows > 0
+    except Exception:
+        return False
+
+
 def _models():
     from config import OSM_MODELS
     return OSM_MODELS
@@ -128,7 +140,7 @@ def cmd_main(T, pentad, cdva, pusher):
         name = cfg["name"]
         # resume: skip a (model, task) whose output parquet already exists non-empty
         pending = [t for t in ("t01_temp", "t12_order", "t02_recovery")
-                   if (name, t) not in done and not (RESULTS / f"{t}_{name}.parquet").exists()]
+                   if not _parquet_nonempty(RESULTS / f"{t}_{name}.parquet")]
         if not pending:
             log.info("model %s already complete; skipping.", name); continue
         try:
@@ -161,6 +173,17 @@ def main():
         _install_attn_fallback()
     except Exception as exc:
         log.warning("attn fallback install skipped: %s", exc)
+
+    # Verify BOTH patching libraries import before doing any work. A broken
+    # transformer_lens must fail here (exit non-zero -> supervisor retries with
+    # a freshly pulled/installed env) rather than silently yielding empty
+    # TransformerLens (llama/gemma) T0.2 results 15 minutes into the run.
+    import transformer_lens
+    import nnsight
+    log.info("patching libs OK: transformer_lens=%s nnsight=%s",
+             getattr(transformer_lens, "__version__", "?"),
+             getattr(nnsight, "__version__", "?"))
+
     T = _import_tasks()
     pentad = load_pentad()
     cdva = load_cdva_pairs()

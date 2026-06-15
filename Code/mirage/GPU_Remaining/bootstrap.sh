@@ -68,6 +68,16 @@ $PIP torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 echo "[bootstrap] python deps"
 $PIP -r requirements_gpu.txt
 
+echo "[bootstrap] transformer_lens 2.18.0 (--no-deps so it keeps torch 2.5.1 / transformers 4.50.3)"
+$PIP --no-deps transformer_lens==2.18.0
+
+echo "[bootstrap] verify patching libraries import (fail loud BEFORE the run)"
+if ! python3 -c "import transformer_lens, nnsight; print('TL', transformer_lens.__version__, '| nnsight', nnsight.__version__)"; then
+    echo "[bootstrap] FATAL: transformer_lens / nnsight import failed -- container kept alive for inspection"
+    push_logs "FATAL: patching libs import failed (see main_console/dryrun logs)"
+    sleep infinity
+fi
+
 echo "[bootstrap] precompiled flash-attention"
 FA_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"
 wget -q "$FA_URL" -O /tmp/fa.whl && $PIP --no-deps /tmp/fa.whl \
@@ -101,9 +111,13 @@ if [ "$DRY_RC" -ne 0 ]; then
     echo "[bootstrap] DRY FAILED -- container kept alive (logs pushed for inspection)"
     sleep infinity
 fi
-echo "[bootstrap] DRY PASSED -- cleaning test artifacts"
+echo "[bootstrap] DRY PASSED -- cleaning test artifacts (results + logs)"
 rm -rf results/dryrun
+rm -f logs/dryrun_console.log
 : > logs/run_gpu_remaining.log || true
+# remove the now-stale dry-run test artifacts from git too, so only the real
+# main-run results/logs are tracked (push happens at the first main checkpoint).
+git -C "$REPO" rm -r --cached --ignore-unmatch Code/mirage/GPU_Remaining/results/dryrun Code/mirage/GPU_Remaining/logs/dryrun_console.log >/dev/null 2>&1 || true
 
 echo "[bootstrap] MAIN run (restart supervisor)"
 ATTEMPT=0
