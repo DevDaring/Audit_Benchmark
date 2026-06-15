@@ -34,6 +34,21 @@ with open(".env", "w") as f:
 print("wrote .env with", sum(1 for k in keys if os.environ.get(k)), "secrets")
 PY
 
+echo "[bootstrap] configure git for result/log pushes"
+git config --global --add safe.directory "$REPO"
+git -C "$REPO" config user.name "MIRAGE GPU Runner"
+git -C "$REPO" config user.email "koushikdeb2009@gmail.com"
+git -C "$REPO" config pull.rebase true
+if [ -n "${Github_Classic_Token:-}" ]; then
+  git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/DevDaring/Audit_Benchmark.git"
+fi
+push_logs() {
+  git -C "$REPO" add -f Code/mirage/GPU_Remaining/results Code/mirage/GPU_Remaining/logs >/dev/null 2>&1
+  git -C "$REPO" commit -q -m "gpu-boot: $1" >/dev/null 2>&1
+  git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1
+  git -C "$REPO" push -q origin main >/dev/null 2>&1 && echo "[bootstrap] pushed: $1"
+}
+
 echo "[bootstrap] torch 2.5.1 (cu124)"
 $PIP --upgrade pip
 $PIP torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
@@ -61,15 +76,20 @@ for m in OSM_MODELS:
 print("models present")
 PY
 
+echo "[bootstrap] setup complete -- marker push"
+push_logs "setup complete; starting dry-run"
+
 echo "[bootstrap] DRY RUN (2 instances)"
-if python3 run_gpu_remaining.py --mode dry; then
-    echo "[bootstrap] DRY PASSED -- removing test results+logs"
-    rm -rf results/dryrun
-    rm -f logs/*.log
-else
-    echo "[bootstrap] DRY FAILED -- aborting main; keeping container alive for inspection"
+python3 run_gpu_remaining.py --mode dry; DRY_RC=$?
+echo "[bootstrap] dry-run rc=$DRY_RC"
+push_logs "dry-run rc=$DRY_RC"
+if [ "$DRY_RC" -ne 0 ]; then
+    echo "[bootstrap] DRY FAILED -- container kept alive (logs pushed for inspection)"
     sleep infinity
 fi
+echo "[bootstrap] DRY PASSED -- cleaning test artifacts"
+rm -rf results/dryrun
+: > logs/run_gpu_remaining.log || true
 
 echo "[bootstrap] MAIN run (restart supervisor)"
 ATTEMPT=0
