@@ -82,41 +82,46 @@ def provision(env: dict, gpu_model: str, deposit: float, max_price: int, wait_s:
     dseq = resp["data"].get("dseq")
     manifest = resp["data"].get("manifest")
     print(f"[akash] deployment created: dseq={dseq}")
+    try:
+        bid = None
+        deadline = time.time() + wait_s
+        while time.time() < deadline:
+            time.sleep(8)
+            bc, bids = _api("GET", f"/v1/bids?dseq={dseq}", key)
+            items = bids.get("data", []) if isinstance(bids, dict) else []
+            items = [b for b in items if b.get("bid", {}).get("state", "open") == "open"]
+            if items:
+                items.sort(key=lambda b: float(b["bid"]["price"]["amount"]))  # price is a decimal string
+                bid = items[0]["bid"]
+                print(f"[akash] {len(items)} bid(s); cheapest price={bid['price']['amount']} "
+                      f"provider={bid['id']['provider']}")
+                break
+            print("[akash] waiting for bids ...")
 
-    bid = None
-    deadline = time.time() + wait_s
-    while time.time() < deadline:
-        time.sleep(8)
-        bc, bids = _api("GET", f"/v1/bids?dseq={dseq}", key)
-        items = bids.get("data", []) if isinstance(bids, dict) else []
-        items = [b for b in items if b.get("bid", {}).get("state", "open") == "open"]
-        if items:
-            items.sort(key=lambda b: int(b["bid"]["price"]["amount"]))
-            bid = items[0]["bid"]
-            print(f"[akash] {len(items)} bid(s); cheapest price={bid['price']['amount']} "
-                  f"provider={bid['id']['provider']}")
-            break
-        print("[akash] waiting for bids ...")
+        if not bid:
+            print(f"[akash] no bids for {gpu_model}; closing dseq={dseq}")
+            _api("DELETE", f"/v1/deployments/{dseq}", key)
+            return None
 
-    if not bid:
-        print(f"[akash] no bids for {gpu_model}; closing dseq={dseq}")
+        bid_id = bid["id"]
+        lease_body = {"manifest": manifest, "leases": [{
+            "dseq": str(dseq), "gseq": bid_id["gseq"], "oseq": bid_id["oseq"],
+            "provider": bid_id["provider"]}]}
+        lc, lresp = _api("POST", "/v1/leases", key, lease_body)
+        if lc not in (200, 201):
+            print(f"[akash] lease FAILED ({lc}): {json.dumps(lresp)[:400]}; closing")
+            _api("DELETE", f"/v1/deployments/{dseq}", key)
+            return None
+        state = {"dseq": str(dseq), "gpu_model": gpu_model, "provider": bid_id["provider"],
+                 "gseq": bid_id["gseq"], "oseq": bid_id["oseq"],
+                 "price_uakt_per_block": bid["price"]["amount"]}
+        STATE.write_text(json.dumps(state, indent=2))
+        print(f"[akash] LEASE CREATED for {gpu_model}. dseq={dseq} provider={bid_id['provider']}")
+        return state
+    except Exception as exc:
+        print(f"[akash] provision error for {gpu_model}: {exc}; closing dseq={dseq}")
         _api("DELETE", f"/v1/deployments/{dseq}", key)
         return None
-
-    bid_id = bid["id"]
-    lease_body = {"manifest": manifest, "leases": [{
-        "dseq": str(dseq), "gseq": bid_id["gseq"], "oseq": bid_id["oseq"],
-        "provider": bid_id["provider"]}]}
-    lc, lresp = _api("POST", "/v1/leases", key, lease_body)
-    if lc not in (200, 201):
-        print(f"[akash] lease FAILED ({lc}): {json.dumps(lresp)[:400]}; closing")
-        _api("DELETE", f"/v1/deployments/{dseq}", key)
-        return None
-    state = {"dseq": str(dseq), "gpu_model": gpu_model, "provider": bid_id["provider"],
-             "gseq": bid_id["gseq"], "oseq": bid_id["oseq"]}
-    STATE.write_text(json.dumps(state, indent=2))
-    print(f"[akash] LEASE CREATED for {gpu_model}. dseq={dseq} provider={bid_id['provider']}")
-    return state
 
 
 def show_status(env: dict) -> None:
@@ -143,7 +148,7 @@ def main():
     ap.add_argument("--deposit", type=float, default=10.0)
     ap.add_argument("--max-price", type=int, default=100000)
     ap.add_argument("--wait", type=int, default=120)
-    ap.add_argument("--gpus", default="h200,h100")
+    ap.add_argument("--gpus", default="h200,h100,a100,a40,a6000,l40s,l40")
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--close", action="store_true")
     args = ap.parse_args()
