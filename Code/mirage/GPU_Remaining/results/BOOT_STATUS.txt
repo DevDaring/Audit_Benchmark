@@ -1,1 +1,1 @@
-container started; installing deps (nvidia-smi: GPU 0: NVIDIA H100 80GB HBM3 (UUID: GPU-416e4f14-a193-67d8-613a-f47d729357b4)) @ Mon Jun 15 12:35:11 UTC 2026
+setup complete; starting dry-run @ Mon Jun 15 12:39:17 UTC 2026
