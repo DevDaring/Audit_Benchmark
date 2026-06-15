@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/workspace/Audit_Benchmark/Code/mirage/GPU_Remaining/run_gpu_remaining.py", line 183, in <module>
+    main()
+  File "/workspace/Audit_Benchmark/Code/mirage/GPU_Remaining/run_gpu_remaining.py", line 164, in main
+    T = _import_tasks()
+        ^^^^^^^^^^^^^^^
+  File "/workspace/Audit_Benchmark/Code/mirage/GPU_Remaining/run_gpu_remaining.py", line 49, in _import_tasks
+    import gpu_tasks
+  File "/workspace/Audit_Benchmark/Code/mirage/GPU_Remaining/gpu_tasks.py", line 19, in <module>
+    from GPU_CPU.cdva_patching import _get_bias_answer
+  File "/workspace/Audit_Benchmark/Code/mirage/GPU_CPU/cdva_patching.py", line 41, in <module>
+    from config import OSM_MODELS, RESULTS_DIR, ensure_dirs
+  File "/workspace/Audit_Benchmark/Code/mirage/config.py", line 52, in <module>
+    DEEPSEEK_API_KEY_1: str = _require("DEEPSEEK_API_KEY_1")
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/Audit_Benchmark/Code/mirage/config.py", line 33, in _require
+    raise EnvironmentError(
+OSError: Required environment variable 'DEEPSEEK_API_KEY_1' is missing or empty. Check your .env file at /workspace/Audit_Benchmark/Code/mirage/.env.
