@@ -7,5 +7,14 @@
       "median_recovery": 0.7935483870967742,
       "frac_recovery_gt_0.5": 0.6799830004249894
     }
+  },
+  "qwen2.5-7b-instruct": {
+    "qwen2.5-7b-instruct": {
+      "n_pairs": 5960,
+      "n_used": 3843,
+      "mean_recovery": 0.6684838146557557,
+      "median_recovery": 0.8,
+      "frac_recovery_gt_0.5": 0.6713505074160812
+    }
   }
 }

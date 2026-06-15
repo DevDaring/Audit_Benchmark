@@ -11,6 +11,18 @@
     [
       "llama-3.1-8b-instruct",
       "t12_order"
+    ],
+    [
+      "qwen2.5-7b-instruct",
+      "t01_temp"
+    ],
+    [
+      "qwen2.5-7b-instruct",
+      "t02_recovery"
+    ],
+    [
+      "qwen2.5-7b-instruct",
+      "t12_order"
     ]
   ]
 }
