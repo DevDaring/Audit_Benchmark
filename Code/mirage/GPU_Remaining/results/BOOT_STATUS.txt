@@ -1,1 +1,1 @@
-setup complete; starting dry-run @ Mon Jun 15 12:28:24 UTC 2026
+dry-run rc=1 @ Mon Jun 15 12:28:30 UTC 2026
