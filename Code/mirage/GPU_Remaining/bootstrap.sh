@@ -43,11 +43,15 @@ if [ -n "${Github_Classic_Token:-}" ]; then
   git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/DevDaring/Audit_Benchmark.git"
 fi
 push_logs() {
+  mkdir -p "$GR/results" "$GR/logs"
+  echo "$1 @ $(date -u)" > "$GR/results/BOOT_STATUS.txt"
   git -C "$REPO" add -f Code/mirage/GPU_Remaining/results Code/mirage/GPU_Remaining/logs >/dev/null 2>&1
   git -C "$REPO" commit -q -m "gpu-boot: $1" >/dev/null 2>&1
   git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1
   git -C "$REPO" push -q origin main >/dev/null 2>&1 && echo "[bootstrap] pushed: $1"
 }
+
+push_logs "container started; installing deps (nvidia-smi: $(nvidia-smi -L 2>/dev/null | head -1))"
 
 echo "[bootstrap] torch 2.5.1 (cu124)"
 $PIP --upgrade pip
