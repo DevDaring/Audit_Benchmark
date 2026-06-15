@@ -103,30 +103,38 @@ def _run_one_model(T, cfg, pentad, cdva, out_dir, limit, log, t02_limit=None):
 
 
 def cmd_dry(T, pentad, cdva):
+    """Smoke-test the FULL code path on EVERY model with 2 instances each.
+
+    Runs all 4 OSM models (not just one TL + one nnsight), so the model-specific
+    paths that only appear in main -- TransformerLens conversion of llama vs gemma,
+    nnsight wrapping of qwen vs phi -- are all exercised before the main run. A
+    dry pass therefore guarantees main will not fail on load/convert/patch grounds.
+    """
     DRY.mkdir(parents=True, exist_ok=True)
     ok = True
-    for cfg in _two_dry_models():
+    for cfg in _models():           # ALL 4 models, not a 2-model subset
         try:
             res = _run_one_model(T, cfg, pentad, cdva, DRY, limit=2, log=log, t02_limit=8)
         except Exception as exc:
             log.error("DRY model %s raised: %s", cfg["name"], exc)
             return False
-        # checks: generation tasks must produce rows; T0.2 must run cleanly (rows may be
-        # filtered, but if any rows exist the schema must be right and at least one finite).
         if len(res["t01_temp"]) < 1 or "parsed_answer" not in res["t01_temp"].columns:
             log.error("DRY FAIL: T0.1 empty for %s", cfg["name"]); ok = False
         if len(res["t12_order"]) < 1 or "order_permuted" not in res["t12_order"].columns:
             log.error("DRY FAIL: T1.2 empty for %s", cfg["name"]); ok = False
         t02 = res["t02_recovery"]
-        if len(t02) and "recovery_fraction" not in t02.columns:
+        # A working patching path produces one row per processed pair. ZERO rows on
+        # 8 dry pairs means the model's TL/nnsight path is broken -> would yield an
+        # empty T0.2 in main. Fail the dry run here, where it is cheap to catch.
+        if len(t02) < 1:
+            log.error("DRY FAIL: T0.2 produced 0 rows for %s (patching path broken)", cfg["name"]); ok = False
+        elif "recovery_fraction" not in t02.columns:
             log.error("DRY FAIL: T0.2 schema for %s", cfg["name"]); ok = False
-        elif len(t02):
+        else:
             import numpy as _np
             vals = t02["recovery_fraction"].to_numpy()
-            log.info("  T0.2 recovery sample: %s (finite=%d/%d)",
-                     vals[:4].tolist(), int(_np.isfinite(vals).sum()), len(vals))
-        else:
-            log.warning("  T0.2 produced 0 rows on dry sample for %s (acceptable)", cfg["name"])
+            log.info("  T0.2 %s: rows=%d finite=%d/%d sample=%s", cfg["name"], len(vals),
+                     int(_np.isfinite(vals).sum()), len(vals), vals[:4].tolist())
     log.info("DRY RESULT: %s", "PASS" if ok else "FAIL")
     return ok
 
