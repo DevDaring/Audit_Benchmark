@@ -1,0 +1,2 @@
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "gemma-2-2b-it", "window_start": 0, "window_layers": [0, 1, 2, 3], "n_layers": 26, "delta_single": 0.15625, "delta_kl": 0.006566366922508026, "ok": true}
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "gemma-2-2b-it", "window_start": 4, "window_layers": [4, 5, 6, 7], "n_layers": 26, "delta_single": 0.59375, "delta_kl": 0.010928774541566554, "ok": true}
