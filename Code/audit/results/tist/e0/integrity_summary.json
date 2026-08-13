@@ -1,0 +1,56 @@
+{
+  "n_slot_c_variants": 2980,
+  "n_degenerate_variants": 297,
+  "frac_degenerate_variants": 0.09966442953020134,
+  "n_seeds_total": 596,
+  "n_seeds_touched": 286,
+  "degenerate_by_source": {
+    "crows_pairs": 169,
+    "bbq": 126,
+    "stereoset": 2
+  },
+  "n_cdva_pairs_total": 23840,
+  "n_cdva_pairs_degenerate": 4708,
+  "frac_cdva_pairs_degenerate": 0.19748322147651007,
+  "per_model": {
+    "gemma-2-2b-it": {
+      "n_pairs_total": 5960,
+      "n_pairs_degenerate": 1177,
+      "mean_absC_all": 0.5056612129979485,
+      "mean_absC_clean": 0.5015052924613785,
+      "mean_absC_degenerate": 0.5225497159090909,
+      "severity_inflation": 0.00415592053656999
+    },
+    "llama-3.1-8b-instruct": {
+      "n_pairs_total": 5960,
+      "n_pairs_degenerate": 1177,
+      "mean_absC_all": 0.5114991988111662,
+      "mean_absC_clean": 0.4680828530744058,
+      "mean_absC_degenerate": 0.687931128852734,
+      "severity_inflation": 0.04341634573676045
+    },
+    "phi-4-mini-instruct": {
+      "n_pairs_total": 5960,
+      "n_pairs_degenerate": 1177,
+      "mean_absC_all": 0.5694106543624161,
+      "mean_absC_clean": 0.5496811624503449,
+      "mean_absC_degenerate": 0.6495858113848768,
+      "severity_inflation": 0.019729491912071184
+    },
+    "qwen2.5-7b-instruct": {
+      "n_pairs_total": 5960,
+      "n_pairs_degenerate": 1177,
+      "mean_absC_all": 1.0055712834300612,
+      "mean_absC_clean": 0.9252709243777604,
+      "mean_absC_degenerate": 1.3318895649484588,
+      "severity_inflation": 0.08030035905230082
+    }
+  },
+  "exclusion": {
+    "n_variants_dropped": 297,
+    "n_seeds_affected": 286,
+    "n_seeds_below_min_c_variants": 0,
+    "min_c_variants_required": 3,
+    "n_prompts_after": 6855
+  }
+}

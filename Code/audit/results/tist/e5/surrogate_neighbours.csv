@@ -1,0 +1,17 @@
+api_model,open_model,n_seeds,signal_agreement,is_neighbour
+qwen3-next-80b-a3b,llama-3.1-8b-instruct,596,0.6884787472035794,False
+qwen3-next-80b-a3b,qwen2.5-7b-instruct,596,0.703579418344519,True
+qwen3-next-80b-a3b,gemma-2-2b-it,596,0.6552013422818792,False
+qwen3-next-80b-a3b,phi-4-mini-instruct,596,0.5047539149888143,False
+amazon-nova-2-lite,llama-3.1-8b-instruct,596,0.7100111856823266,True
+amazon-nova-2-lite,qwen2.5-7b-instruct,596,0.6641498881431768,False
+amazon-nova-2-lite,gemma-2-2b-it,596,0.6387024608501118,False
+amazon-nova-2-lite,phi-4-mini-instruct,596,0.4865771812080537,False
+gemini-2.5-flash,llama-3.1-8b-instruct,596,0.6837248322147651,False
+gemini-2.5-flash,qwen2.5-7b-instruct,596,0.7329418344519015,True
+gemini-2.5-flash,gemma-2-2b-it,596,0.633668903803132,False
+gemini-2.5-flash,phi-4-mini-instruct,596,0.4888143176733781,False
+mistral-medium,llama-3.1-8b-instruct,596,0.700503355704698,True
+mistral-medium,qwen2.5-7b-instruct,596,0.6926733780760627,False
+mistral-medium,gemma-2-2b-it,596,0.5878076062639821,False
+mistral-medium,phi-4-mini-instruct,596,0.4267337807606264,False

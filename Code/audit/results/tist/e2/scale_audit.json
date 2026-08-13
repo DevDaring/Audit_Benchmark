@@ -1,0 +1,28 @@
+{
+  "published_tau": 0.7643661499023438,
+  "published_tau_units": "75th percentile of |delta_logit|, in logit units",
+  "applied_against": "cdva_seed_score = 1 - min(|delta_logit|/5.0, 1)",
+  "implied_absC_cut_logits": 1.1781692504882812,
+  "implied_absC_percentile": 85.36073825503355,
+  "nominal_absC_percentile": 75.0,
+  "corrected_tau_same_percentile": 0.8471267700195313,
+  "reproduces_stored_labels": true,
+  "mirage_full_published": {
+    "gemma-2-2b-it": 0.09731543624161074,
+    "llama-3.1-8b-instruct": 0.24328859060402686,
+    "phi-4-mini-instruct": 0.0,
+    "qwen2.5-7b-instruct": 0.11912751677852348
+  },
+  "mirage_full_corrected": {
+    "gemma-2-2b-it": 0.09395973154362416,
+    "llama-3.1-8b-instruct": 0.22483221476510068,
+    "phi-4-mini-instruct": 0.0,
+    "qwen2.5-7b-instruct": 0.07885906040268456
+  },
+  "delta_vs_published": {
+    "gemma-2-2b-it": -0.0033557046979865723,
+    "llama-3.1-8b-instruct": -0.018456375838926176,
+    "phi-4-mini-instruct": 0.0,
+    "qwen2.5-7b-instruct": -0.040268456375838924
+  }
+}

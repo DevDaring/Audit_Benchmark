@@ -160,6 +160,13 @@ ATTEMPT=0
 while true; do
   ATTEMPT=$((ATTEMPT+1))
   echo "[tist] main attempt $ATTEMPT"
+  # Pull before each attempt. This picks up the Hindi and Bengali pentads if they were
+  # committed after the lease started, and lets a code fix reach a live lease without
+  # paying to reprovision. Results are force-added, so reset them before pulling to
+  # avoid a rebase conflict against the runner's own pushes.
+  git -C "$REPO" stash -q --include-untracked >/dev/null 2>&1 || true
+  git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1 || true
+  git -C "$REPO" stash pop -q >/dev/null 2>&1 || true
   python3 TIST/run_tist_gpu.py --tasks all > "$TIST/logs/main.log" 2>&1 && break
   tail -40 "$TIST/logs/main.log"
   push_results "main attempt $ATTEMPT exited non-zero"
