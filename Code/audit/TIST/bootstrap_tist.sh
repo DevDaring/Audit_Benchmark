@@ -247,8 +247,20 @@ while true; do
 done
 
 echo "[tist] dry passed; clearing dry-run records so they never enter the real results"
-rm -f "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl
+# Do NOT delete the JSONL here. An earlier version did, to keep dry-run records out of
+# the real results, and that quietly destroyed the whole resume story: a fresh lease
+# clones the records previous leases pushed, and this line wiped them the moment the dry
+# run passed, so every restart recomputed from zero.
+#
+# Keeping them is also the correct answer on the merits. Dry-run records are produced by
+# the same code path against the same seeds; only the number of units differs. They are
+# real measurements, and _done() skipping those units in the main run is exactly right.
+#
+# The truncated dry-run behavioural parquets are the one artefact that must not survive,
+# and task_e4_behav now handles that by comparing row counts against the expected prompt
+# count rather than trusting the filename, so removing them here is belt-and-braces.
 rm -f "$AUDIT"/results/tist/e4/behav_*.parquet
+echo "[tist] retained $(dry_units) existing records; the main run resumes from them"
 
 echo "[tist] background result sync every 15 min (standalone daemon)"
 # TIST/sync_results.sh replaces the inline pusher this script used to run. It rebases and
