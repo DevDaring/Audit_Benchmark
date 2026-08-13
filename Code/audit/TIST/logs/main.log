@@ -1,0 +1,14 @@
+2026-08-13 05:21:56,227 INFO pentad: 6855 prompts, 596 seeds
+2026-08-13 05:21:56,227 INFO === llama-3.1-8b-instruct ===
+2026-08-13 05:21:58,617 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
+2026-08-13 05:22:00,675 ERROR load failed for llama-3.1-8b-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
+2026-08-13 05:22:00,727 INFO === qwen2.5-7b-instruct ===
+2026-08-13 05:22:00,727 INFO Loading model: qwen2.5-7b-instruct (Qwen/Qwen2.5-7B-Instruct) ...
+2026-08-13 05:22:01,492 ERROR load failed for qwen2.5-7b-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
+2026-08-13 05:22:01,549 INFO === gemma-2-2b-it ===
+2026-08-13 05:22:01,549 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
+2026-08-13 05:22:03,134 ERROR load failed for gemma-2-2b-it: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
+2026-08-13 05:22:03,253 INFO === phi-4-mini-instruct ===
+2026-08-13 05:22:03,253 INFO Loading model: phi-4-mini-instruct (microsoft/Phi-4-mini-instruct) ...
+2026-08-13 05:22:04,832 ERROR load failed for phi-4-mini-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
+2026-08-13 05:22:04,929 INFO all requested tasks complete
