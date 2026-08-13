@@ -42,15 +42,41 @@ and `e2/FINDINGS.md`.
 Defect 2 is the strongest available answer to Reviewer 1: part of the commutator
 demonstrably was an item-construction artefact, and the audit's own bookkeeping found it.
 
+## Action required from the authors
+
+`e3/iaa_sheet_koushik.csv` and `e3/iaa_sheet_abhinaba.csv` are ready to fill. 200 items,
+stratified over 61 strata: 87 slot (d), 113 slot (e). Criteria and worked examples are in
+`e3/annotation_guidelines.md`. Roughly 60 to 90 minutes each, independently, no conferring
+until both are done. Then:
+
+```
+python TIST/e3_annotation.py score
+```
+
+That emits Cohen's kappa between the two of you, Fleiss' kappa across the LLM panel, and
+the agreement of the LLM majority with your consensus. Without these two files the paper
+reports the LLM panel only, which is a weaker answer to Reviewer 2.
+
 ## Next
 
-1. Push code so the lease can clone it.
-2. Provision the 24 GB Akash lease, run the battery across four models.
-3. E3 annotation protocol and sheets, while the GPU runs.
-4. E2b, calibrate tau on the E1.4 controls with Youden's J.
-5. Analysis, figures, tables.
-6. Manuscript and cover letter.
-7. Verification gates.
+1. Finish the Hindi and Bengali pentads, commit the parquets.
+2. Provision the 24 GB Akash lease and run the battery across four models:
+   `python TIST/deploy_tist.py --deposit 20 --wait 180`
+   Progress: `python TIST/deploy_tist.py --status`. Results push every 15 minutes.
+   Close the lease when `results/tist/TIST_GPU_DONE` appears:
+   `python TIST/deploy_tist.py --close`
+3. `python TIST/e1_analyse.py` and `python TIST/e4_analyse.py` once results land.
+4. API-model multilingual runs on `debkoushik` under tmux.
+5. E2b, adopt the Youden threshold from E1.4 and recompute every MIRAGE-Full number.
+6. Figures F-A to F-E, script-generated tables.
+7. Manuscript and cover letter.
+8. Verification gates.
+
+## Cost control
+
+The lease bills continuously. Close it as soon as `TIST_GPU_DONE` appears; the estimate is
+about 40 GPU-hours of work plus setup, so budget roughly two days of wall clock and check
+in at least twice a day.
 
 ## Estimated GPU cost
 
