@@ -72,12 +72,37 @@ if [ -n "${Github_Classic_Token:-}" ]; then
 fi
 
 push_results() {
+  # A failed `git pull --rebase` leaves the repo mid-rebase, and because the previous
+  # version sent every git command to /dev/null, that state was invisible: the first
+  # conflict wedged the repo and every later checkpoint failed silently, including the
+  # final COMPLETE push. A run could therefore finish and deliver nothing.
+  #
+  # Fixes: abort a failed rebase so the repo is always usable afterwards, retry the push,
+  # and report the outcome instead of swallowing it.
   mkdir -p "$AUDIT/results/tist" "$TIST/logs"
   echo "$1 @ $(date -u)" > "$AUDIT/results/tist/BOOT_STATUS.txt"
+
+  # Never leave a half-finished rebase from an earlier call.
+  git -C "$REPO" rebase --abort >/dev/null 2>&1 || true
+
   git -C "$REPO" add -f Code/audit/results/tist Code/audit/TIST/logs >/dev/null 2>&1
   git -C "$REPO" commit -q -m "tist-gpu: $1" >/dev/null 2>&1
-  git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1
-  git -C "$REPO" push -q origin main >/dev/null 2>&1 && echo "[tist] pushed: $1"
+
+  local attempt
+  for attempt in 1 2 3; do
+    if git -C "$REPO" push -q origin main >/dev/null 2>&1; then
+      echo "[tist] pushed: $1"
+      return 0
+    fi
+    git -C "$REPO" fetch -q origin main >/dev/null 2>&1 || true
+    if ! git -C "$REPO" rebase -q FETCH_HEAD >/dev/null 2>&1; then
+      git -C "$REPO" rebase --abort >/dev/null 2>&1 || true
+      echo "[tist] rebase conflict on checkpoint '$1'; keeping the commit for the next attempt"
+    fi
+    sleep 5
+  done
+  echo "[tist] WARN push failed after 3 attempts: $1"
+  return 1
 }
 
 push_results "container started ($(nvidia-smi -L 2>/dev/null | head -1))"

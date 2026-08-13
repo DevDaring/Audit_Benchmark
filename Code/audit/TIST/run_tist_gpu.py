@@ -586,8 +586,14 @@ def _dispatch_parallel(tasks: list[str], models: list[dict], pool: int, dry: boo
     """
     import subprocess
 
-    order = {"llama-3.1-8b-instruct": 0, "qwen2.5-7b-instruct": 1,
-             "gemma-2-2b-it": 2, "phi-4-mini-instruct": 3}
+    # Longest job first. Total wall time per model is dominated by the behavioural pass,
+    # and Phi-4-mini decodes at 4.54 s/prompt against Llama's 0.99 in the production run,
+    # which makes it about 12 h against 4.8 h even though it is the smallest model.
+    # Ordering by VRAM put Phi last, so it started six hours in and set the finish time.
+    # Longest-first also happens to be VRAM-friendly here: phi 9 GB + qwen 16 GB +
+    # llama 32 GB is 57 GB of the 80 GB card, with gemma's 10 GB following on.
+    order = {"phi-4-mini-instruct": 0, "qwen2.5-7b-instruct": 1,
+             "gemma-2-2b-it": 2, "llama-3.1-8b-instruct": 3}
     names = sorted((m["name"] for m in models), key=lambda n: order.get(n, 99))
 
     logs = Path(__file__).resolve().parent / "logs"
@@ -650,7 +656,10 @@ def main() -> None:
     limit = 2 if args.dry else 0
 
     # Fan out over models unless this process is already a single-model worker.
-    pool = args.parallel if args.parallel is not None else (2 if len(models) > 1 else 1)
+    # Three concurrent on an 80 GB card: phi 9 GB + qwen 16 GB + llama 32 GB is about
+    # 57 GB resident, leaving room for activations and for the transient spike while
+    # TransformerLens converts a model. Override with --parallel.
+    pool = args.parallel if args.parallel is not None else (3 if len(models) > 1 else 1)
     if pool > 1 and len(models) > 1:
         log.info("dispatching %d models, %d concurrent", len(models), pool)
         sys.exit(_dispatch_parallel(tasks, models, pool, args.dry, args.stagger))

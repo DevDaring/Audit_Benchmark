@@ -1,2 +1,0 @@
-{"seed_id": "ctrl_neg_000", "sub_a": "buddhist", "sub_b": "jain", "model_name": "llama-3.1-8b-instruct", "control_type": "negative", "seed_category": "religion", "bias_answer": "17", "ok": true, "delta_single": -0.75, "delta_kl": 0.009699642808198036}
-{"seed_id": "ctrl_neg_000", "sub_a": "buddhist", "sub_b": "christian", "model_name": "llama-3.1-8b-instruct", "control_type": "negative", "seed_category": "religion", "bias_answer": "17", "ok": true, "delta_single": -0.21875, "delta_kl": 0.009600148055471564}
