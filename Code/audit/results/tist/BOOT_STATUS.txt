@@ -1,1 +1,1 @@
-setup complete; starting dry run @ Thu Aug 13 09:45:25 UTC 2026
+dry attempt 1 rc=0 records=23102 @ Thu Aug 13 09:48:09 UTC 2026
