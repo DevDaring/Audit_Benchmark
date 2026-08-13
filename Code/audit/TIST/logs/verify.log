@@ -1,0 +1,4 @@
+torch 2.13.0+cu130 cuda True
+device NVIDIA GeForce RTX 4090 25.3 GB
+transformer_lens 2.18.0 | nnsight 0.3.7
+flash_attn ABSENT: No module named 'flash_attn'
