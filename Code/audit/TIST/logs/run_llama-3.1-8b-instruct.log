@@ -20,3 +20,15 @@
 2026-08-13 10:00:10,047 INFO llama-3.1-8b-instruct battery: 1800 units, 2.72 units/s
 2026-08-13 10:01:22,954 INFO llama-3.1-8b-instruct battery: 2000 units, 2.72 units/s
 2026-08-13 10:02:34,779 INFO llama-3.1-8b-instruct battery: 2200 units, 2.73 units/s
+2026-08-13 10:03:48,017 INFO llama-3.1-8b-instruct battery: 2400 units, 2.73 units/s
+2026-08-13 10:05:02,151 INFO llama-3.1-8b-instruct battery: 2600 units, 2.73 units/s
+2026-08-13 10:06:15,777 INFO llama-3.1-8b-instruct battery: 2800 units, 2.73 units/s
+2026-08-13 10:07:30,670 INFO llama-3.1-8b-instruct battery: 3000 units, 2.72 units/s
+2026-08-13 10:08:45,356 INFO llama-3.1-8b-instruct battery: 3200 units, 2.72 units/s
+2026-08-13 10:09:59,884 INFO llama-3.1-8b-instruct battery: 3400 units, 2.72 units/s
+2026-08-13 10:11:14,055 INFO llama-3.1-8b-instruct battery: 3600 units, 2.72 units/s
+2026-08-13 10:12:27,568 INFO llama-3.1-8b-instruct battery: 3800 units, 2.72 units/s
+2026-08-13 10:13:39,928 INFO llama-3.1-8b-instruct battery: 4000 units, 2.72 units/s
+2026-08-13 10:14:54,286 INFO llama-3.1-8b-instruct battery: 4200 units, 2.72 units/s
+2026-08-13 10:16:07,132 INFO llama-3.1-8b-instruct battery: 4400 units, 2.72 units/s
+2026-08-13 10:17:19,250 INFO llama-3.1-8b-instruct battery: 4600 units, 2.72 units/s
