@@ -1,4 +1,3 @@
-2026-08-13 08:15:45,800 INFO dispatching 4 models, 3 concurrent
-2026-08-13 08:15:45,801 INFO launching phi-4-mini-instruct (1 running)
-2026-08-13 08:17:45,802 INFO launching qwen2.5-7b-instruct (2 running)
-2026-08-13 08:19:45,803 INFO launching gemma-2-2b-it (3 running)
+2026-08-13 08:22:29,234 INFO dispatching 4 models, 3 concurrent
+2026-08-13 08:22:29,234 INFO launching phi-4-mini-instruct (1 running)
+2026-08-13 08:24:29,236 INFO launching qwen2.5-7b-instruct (2 running)
