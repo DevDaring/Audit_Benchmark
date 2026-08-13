@@ -1,1 +1,1 @@
-container started (GPU 0: NVIDIA A100-SXM4-80GB (UUID: GPU-84abde0a-4c0f-32e8-6a1b-7f624405a119)) @ Thu Aug 13 09:40:13 UTC 2026
+setup complete; starting dry run @ Thu Aug 13 09:45:25 UTC 2026
