@@ -129,6 +129,18 @@ def start_watchdog(log_path: Path | None = None) -> None:
 
 
 def _done(path: Path, key_fields: tuple) -> set:
+    """
+    Units already computed successfully. Failed rows are deliberately NOT counted.
+
+    A failed row records an absence, not a result, and treating it as complete makes the
+    failure permanent. That is what happened to Bengali: every pair recorded
+    "position not found" against a tokenisation bug, and because those rows were treated
+    as done, fixing the bug would not have retried a single one of them.
+
+    Only ok=true units are skipped, so any fix to a failure mode takes effect on the next
+    run with no file surgery. Units that genuinely cannot be computed are re-attempted
+    each run, which is cheap: they fail in the lookup before any GPU work happens.
+    """
     if not path.exists():
         return set()
     keys = set()
@@ -137,6 +149,8 @@ def _done(path: Path, key_fields: tuple) -> set:
             try:
                 r = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if r.get("ok") is False:
                 continue
             keys.add(tuple(r.get(k) for k in key_fields))
     return keys
