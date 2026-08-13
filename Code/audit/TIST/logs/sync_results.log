@@ -30,3 +30,5 @@
 [sync 15:33:33] pushed 61207 records (attempt 1)
 [sync 15:48:46] rebase failed; leaving the commit for the next interval
 [sync 15:48:51] push still failing after 3 attempts; will retry next interval
+[sync 16:04:03] rebase failed; leaving the commit for the next interval
+[sync 16:04:08] push still failing after 3 attempts; will retry next interval
