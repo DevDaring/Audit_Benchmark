@@ -91,12 +91,20 @@ _push_once_body() {
   # external stall alarm reported OK four times running through a process that had been
   # hung for 53 minutes. Silence has to mean "no progress" for a liveness check to be worth
   # having.
-  last=$(cat "${LAST_COUNT_FILE:-/tmp/tist-last-record-count}" 2>/dev/null || echo "-1")
-  if [ "$n" = "$last" ]; then
-    log "no new records (${n}); skipping the commit so silence stays meaningful"
+  # Progress is "records changed OR a worker log advanced". Records alone is not enough:
+  # the behavioural pass writes no JSONL until a language completes, so a records-only
+  # rule suppressed the commit for the whole pass and took the logs down with it, leaving
+  # no way to tell a working run from a hung one. Skipping only when BOTH are static
+  # keeps silence meaningful while preserving visibility.
+  local sig sigfile
+  sigfile="${LAST_COUNT_FILE:-/tmp/tist-last-record-count}"
+  sig="${n}:$(cat "$HERE"/logs/run_*.log "$HERE"/logs/main.log 2>/dev/null | wc -l | tr -d ' ')"
+  last=$(cat "$sigfile" 2>/dev/null || echo "-1")
+  if [ "$sig" = "$last" ]; then
+    log "no new records and no log activity (${n}); skipping the commit"
     return 0
   fi
-  echo "$n" > "${LAST_COUNT_FILE:-/tmp/tist-last-record-count}"
+  echo "$sig" > "$sigfile"
 
   msg="tist-sync: ${n} records @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "$msg" > "$AUDIT/results/tist/SYNC_STATUS.txt"
