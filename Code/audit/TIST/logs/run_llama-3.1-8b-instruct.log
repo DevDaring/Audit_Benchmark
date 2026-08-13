@@ -1,96 +1,35 @@
-2026-08-13 09:48:18,528 INFO pentad: 6855 prompts, 596 seeds
-2026-08-13 09:48:18,528 INFO === llama-3.1-8b-instruct ===
-2026-08-13 09:48:20,043 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
-2026-08-13 09:48:21,267 WARNING flash_attention_2 unavailable for llama-3.1-8b-instruct (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
-Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:01<00:03,  1.32s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:02<00:02,  1.08s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:03<00:00,  1.04it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.51it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.23it/s]
-2026-08-13 09:48:24,675 INFO   Model llama-3.1-8b-instruct               | attention impl: sdpa
-2026-08-13 09:48:24,676 WARNING   WARNING: llama-3.1-8b-instruct did not load with flash_attention_2 (got 'sdpa').
-2026-08-13 09:48:24,676 INFO Model 'llama-3.1-8b-instruct' loaded successfully.
-2026-08-13 09:48:25,116 INFO Converting HF model 'meta-llama/Llama-3.1-8B-Instruct' to HookedTransformer for CDVA patching ...
-2026-08-13 09:49:08,565 INFO HookedTransformer for 'meta-llama/Llama-3.1-8B-Instruct' cached (device=cuda:0).
-2026-08-13 09:49:08,565 INFO llama-3.1-8b-instruct: 32 layers via transformer_lens
-2026-08-13 09:50:22,813 INFO llama-3.1-8b-instruct battery: 200 units, 2.69 units/s
-2026-08-13 09:51:36,936 INFO llama-3.1-8b-instruct battery: 400 units, 2.70 units/s
-2026-08-13 09:52:50,764 INFO llama-3.1-8b-instruct battery: 600 units, 2.70 units/s
-2026-08-13 09:54:03,767 INFO llama-3.1-8b-instruct battery: 800 units, 2.71 units/s
-2026-08-13 09:55:16,068 INFO llama-3.1-8b-instruct battery: 1000 units, 2.72 units/s
-2026-08-13 09:56:29,555 INFO llama-3.1-8b-instruct battery: 1200 units, 2.72 units/s
-2026-08-13 09:57:44,187 INFO llama-3.1-8b-instruct battery: 1400 units, 2.72 units/s
-2026-08-13 09:58:57,026 INFO llama-3.1-8b-instruct battery: 1600 units, 2.72 units/s
-2026-08-13 10:00:10,047 INFO llama-3.1-8b-instruct battery: 1800 units, 2.72 units/s
-2026-08-13 10:01:22,954 INFO llama-3.1-8b-instruct battery: 2000 units, 2.72 units/s
-2026-08-13 10:02:34,779 INFO llama-3.1-8b-instruct battery: 2200 units, 2.73 units/s
-2026-08-13 10:03:48,017 INFO llama-3.1-8b-instruct battery: 2400 units, 2.73 units/s
-2026-08-13 10:05:02,151 INFO llama-3.1-8b-instruct battery: 2600 units, 2.73 units/s
-2026-08-13 10:06:15,777 INFO llama-3.1-8b-instruct battery: 2800 units, 2.73 units/s
-2026-08-13 10:07:30,670 INFO llama-3.1-8b-instruct battery: 3000 units, 2.72 units/s
-2026-08-13 10:08:45,356 INFO llama-3.1-8b-instruct battery: 3200 units, 2.72 units/s
-2026-08-13 10:09:59,884 INFO llama-3.1-8b-instruct battery: 3400 units, 2.72 units/s
-2026-08-13 10:11:14,055 INFO llama-3.1-8b-instruct battery: 3600 units, 2.72 units/s
-2026-08-13 10:12:27,568 INFO llama-3.1-8b-instruct battery: 3800 units, 2.72 units/s
-2026-08-13 10:13:39,928 INFO llama-3.1-8b-instruct battery: 4000 units, 2.72 units/s
-2026-08-13 10:14:54,286 INFO llama-3.1-8b-instruct battery: 4200 units, 2.72 units/s
-2026-08-13 10:16:07,132 INFO llama-3.1-8b-instruct battery: 4400 units, 2.72 units/s
-2026-08-13 10:17:19,250 INFO llama-3.1-8b-instruct battery: 4600 units, 2.72 units/s
-2026-08-13 10:18:31,702 INFO llama-3.1-8b-instruct battery: 4800 units, 2.72 units/s
-2026-08-13 10:19:45,695 INFO llama-3.1-8b-instruct battery: 5000 units, 2.72 units/s
-2026-08-13 10:21:00,608 INFO llama-3.1-8b-instruct battery: 5200 units, 2.72 units/s
-2026-08-13 10:22:13,946 INFO llama-3.1-8b-instruct battery: 5400 units, 2.72 units/s
-2026-08-13 10:23:27,027 INFO llama-3.1-8b-instruct battery: 5600 units, 2.72 units/s
-2026-08-13 10:24:39,169 INFO llama-3.1-8b-instruct battery: 5800 units, 2.72 units/s
-2026-08-13 10:25:51,109 INFO llama-3.1-8b-instruct battery: 6000 units, 2.72 units/s
-2026-08-13 10:27:06,886 INFO llama-3.1-8b-instruct battery: 6200 units, 2.72 units/s
-2026-08-13 10:28:19,736 INFO llama-3.1-8b-instruct battery: 6400 units, 2.72 units/s
-2026-08-13 10:29:30,053 INFO llama-3.1-8b-instruct battery: 6600 units, 2.73 units/s
-2026-08-13 10:30:41,004 INFO llama-3.1-8b-instruct battery: 6800 units, 2.73 units/s
-2026-08-13 10:31:52,555 INFO llama-3.1-8b-instruct battery: 7000 units, 2.73 units/s
-2026-08-13 10:33:02,368 INFO llama-3.1-8b-instruct battery: 7200 units, 2.73 units/s
-2026-08-13 10:34:12,187 INFO llama-3.1-8b-instruct battery: 7400 units, 2.74 units/s
-2026-08-13 10:35:22,310 INFO llama-3.1-8b-instruct battery: 7600 units, 2.74 units/s
-2026-08-13 10:36:33,985 INFO llama-3.1-8b-instruct battery: 7800 units, 2.74 units/s
-2026-08-13 10:37:46,299 INFO llama-3.1-8b-instruct battery: 8000 units, 2.74 units/s
-2026-08-13 10:38:56,455 INFO llama-3.1-8b-instruct battery: 8200 units, 2.74 units/s
-2026-08-13 10:40:06,279 INFO llama-3.1-8b-instruct battery: 8400 units, 2.75 units/s
-2026-08-13 10:41:16,037 INFO llama-3.1-8b-instruct battery: 8600 units, 2.75 units/s
-2026-08-13 10:42:27,063 INFO llama-3.1-8b-instruct battery: 8800 units, 2.75 units/s
-2026-08-13 10:43:39,104 INFO llama-3.1-8b-instruct battery: 9000 units, 2.75 units/s
-2026-08-13 10:44:49,693 INFO llama-3.1-8b-instruct battery: 9200 units, 2.75 units/s
-2026-08-13 10:46:00,048 INFO llama-3.1-8b-instruct battery: 9400 units, 2.76 units/s
-2026-08-13 10:53:33,954 INFO llama-3.1-8b-instruct controls: 4000 units
-2026-08-13 10:54:06,592 INFO llama-3.1-8b-instruct layer sweep: 400 window-units
-2026-08-13 10:54:37,288 INFO llama-3.1-8b-instruct layer sweep: 800 window-units
-2026-08-13 10:55:07,541 INFO llama-3.1-8b-instruct layer sweep: 1200 window-units
-2026-08-13 10:55:38,515 INFO llama-3.1-8b-instruct layer sweep: 1600 window-units
-2026-08-13 10:56:09,373 INFO llama-3.1-8b-instruct layer sweep: 2000 window-units
-2026-08-13 10:56:40,529 INFO llama-3.1-8b-instruct layer sweep: 2400 window-units
-2026-08-13 10:57:11,632 INFO llama-3.1-8b-instruct layer sweep: 2800 window-units
-2026-08-13 10:57:41,611 INFO llama-3.1-8b-instruct layer sweep: 3200 window-units
-2026-08-13 10:58:13,374 INFO llama-3.1-8b-instruct layer sweep: 3600 window-units
-2026-08-13 10:58:44,910 INFO llama-3.1-8b-instruct layer sweep: 4000 window-units
-2026-08-13 10:59:16,859 INFO llama-3.1-8b-instruct layer sweep: 4400 window-units
-2026-08-13 10:59:48,430 INFO llama-3.1-8b-instruct layer sweep: 4800 window-units
-2026-08-13 11:00:19,156 INFO llama-3.1-8b-instruct layer sweep: 5200 window-units
-2026-08-13 11:00:49,912 INFO llama-3.1-8b-instruct layer sweep: 5600 window-units
-2026-08-13 11:01:21,387 INFO llama-3.1-8b-instruct layer sweep: 6000 window-units
-2026-08-13 11:01:52,491 INFO llama-3.1-8b-instruct layer sweep: 6400 window-units
-2026-08-13 11:02:23,431 INFO llama-3.1-8b-instruct layer sweep: 6800 window-units
-2026-08-13 11:02:54,888 INFO llama-3.1-8b-instruct layer sweep: 7200 window-units
-2026-08-13 11:03:25,640 INFO llama-3.1-8b-instruct layer sweep: 7600 window-units
-2026-08-13 11:03:56,087 INFO llama-3.1-8b-instruct layer sweep: 8000 window-units
-2026-08-13 11:04:27,145 INFO llama-3.1-8b-instruct layer sweep: 8400 window-units
-2026-08-13 11:04:57,402 INFO llama-3.1-8b-instruct layer sweep: 8800 window-units
-2026-08-13 11:05:27,492 INFO llama-3.1-8b-instruct layer sweep: 9200 window-units
-2026-08-13 11:05:57,430 INFO llama-3.1-8b-instruct layer sweep: 9600 window-units
-2026-08-13 11:07:37,361 INFO llama-3.1-8b-instruct mediation: 600 units
-2026-08-13 11:14:38,857 INFO llama-3.1-8b-instruct hi CDVA: 3672 units, located 3632/3672
-2026-08-13 11:15:04,449 INFO llama-3.1-8b-instruct bn CDVA: 3512 units, located 0/3512
-2026-08-13 11:15:04,500 INFO llama-3.1-8b-instruct behavioural hi: 2644 prompts
+2026-08-13 12:33:08,805 INFO watchdog armed: exits after 25 min with no records and no log activity
+2026-08-13 12:33:08,844 INFO pentad: 6855 prompts, 596 seeds
+2026-08-13 12:33:08,844 INFO === llama-3.1-8b-instruct ===
+2026-08-13 12:33:10,394 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
+2026-08-13 12:33:11,698 WARNING flash_attention_2 unavailable for llama-3.1-8b-instruct (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:01<00:04,  1.50s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:02<00:02,  1.15s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:03<00:01,  1.03s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.44it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.15it/s]
+2026-08-13 12:33:15,329 INFO   Model llama-3.1-8b-instruct               | attention impl: sdpa
+2026-08-13 12:33:15,329 WARNING   WARNING: llama-3.1-8b-instruct did not load with flash_attention_2 (got 'sdpa').
+2026-08-13 12:33:15,329 INFO Model 'llama-3.1-8b-instruct' loaded successfully.
+2026-08-13 12:33:15,770 INFO Converting HF model 'meta-llama/Llama-3.1-8B-Instruct' to HookedTransformer for CDVA patching ...
+2026-08-13 12:33:56,336 INFO HookedTransformer for 'meta-llama/Llama-3.1-8B-Instruct' cached (device=cuda:0).
+2026-08-13 12:33:56,337 INFO llama-3.1-8b-instruct: 32 layers via transformer_lens
+2026-08-13 12:34:09,922 INFO llama-3.1-8b-instruct controls: 117 units
+2026-08-13 12:36:44,367 INFO llama-3.1-8b-instruct mediation: 0 units
+2026-08-13 12:36:44,659 INFO llama-3.1-8b-instruct hi CDVA: 0 units, located 0/0
+2026-08-13 12:36:44,936 INFO llama-3.1-8b-instruct bn CDVA: 0 units, located 0/0
+2026-08-13 12:36:44,974 INFO llama-3.1-8b-instruct behavioural hi: 2644 prompts
 /usr/local/lib/python3.12/dist-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
   warnings.warn(
 /usr/local/lib/python3.12/dist-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
   warnings.warn(
-2026-08-13 11:15:51,664 INFO OSM llama-3.1-8b-instruct: 104/2644 prompts done (sample_index=0, batch_size=8).
-2026-08-13 11:16:31,481 INFO OSM llama-3.1-8b-instruct: 200/2644 prompts done (sample_index=0, batch_size=8).
-2026-08-13 11:17:18,168 INFO OSM llama-3.1-8b-instruct: 304/2644 prompts done (sample_index=0, batch_size=8).
-2026-08-13 11:18:02,693 INFO OSM llama-3.1-8b-instruct: 400/2644 prompts done (sample_index=0, batch_size=8).
-2026-08-13 11:18:50,665 INFO OSM llama-3.1-8b-instruct: 504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:37:32,031 INFO OSM llama-3.1-8b-instruct: 104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:38:11,802 INFO OSM llama-3.1-8b-instruct: 200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:38:58,380 INFO OSM llama-3.1-8b-instruct: 304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:39:42,867 INFO OSM llama-3.1-8b-instruct: 400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:40:30,852 INFO OSM llama-3.1-8b-instruct: 504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:41:15,980 INFO OSM llama-3.1-8b-instruct: 600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:42:02,815 INFO OSM llama-3.1-8b-instruct: 704/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:42:44,844 INFO OSM llama-3.1-8b-instruct: 800/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:43:31,120 INFO OSM llama-3.1-8b-instruct: 904/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:44:19,727 INFO OSM llama-3.1-8b-instruct: 1000/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:45:07,743 INFO OSM llama-3.1-8b-instruct: 1104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:45:52,837 INFO OSM llama-3.1-8b-instruct: 1200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:46:38,221 INFO OSM llama-3.1-8b-instruct: 1304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-13 12:47:18,643 INFO OSM llama-3.1-8b-instruct: 1400/2644 prompts done (sample_index=0, batch_size=8).
