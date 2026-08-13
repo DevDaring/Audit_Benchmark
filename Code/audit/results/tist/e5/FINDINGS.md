@@ -13,9 +13,10 @@ computed (`reproduction_check.json`).
 
 ## 1. Nearest behavioural neighbour
 
-Agreement is the mean match rate over seven binary signals per seed (the five MIRAGE-B
-component checks, plus slot-d correctness split out, plus the sampling-stability signal
-that FM4 is defined on), across all 596 shared seeds.
+Agreement is the mean match rate over six binary signals per seed, across all 596 shared
+seeds: the five MIRAGE-B component checks (slot-a correctness, slot-b correctness,
+slot-c stability, slot-d correctness, slot-e chain-of-thought robustness) plus the
+sampling-stability signal that FM4 is defined on.
 
 | API model | Nearest open model | Signal agreement |
 |---|---|---|
