@@ -221,7 +221,53 @@ class Patcher:
 
     # -- token helpers ----------------------------------------------------
     def position_of(self, prompt: str, token: str) -> int | None:
-        return _get_token_position(self.tokenizer, prompt, token)
+        """
+        Locate the protected token, falling back to offset mapping for Indic script.
+
+        The production search in GPU_CPU.utils_attention decodes tokens one at a time and
+        concatenates them to find the target. That works for Latin text but fails on
+        byte-level BPE fragments: a Bengali character split across several byte tokens
+        decodes to replacement characters individually, so the reconstructed string never
+        contains the target. The symptom was stark, 3,632 of 3,672 Hindi pairs located for
+        Llama against 0 of 3,512 Bengali pairs, all reporting "position not found".
+
+        The fallback asks the tokeniser for character offsets instead of reconstructing
+        text, which is script-agnostic. The production path is tried first and returns
+        unchanged wherever it succeeds, so English and Hindi results are bit-identical to
+        what they would have been; only the previously unlocatable cases take this branch.
+        """
+        pos = _get_token_position(self.tokenizer, prompt, token)
+        if pos is not None:
+            return pos
+
+        target = str(token).replace("_", " ").strip()
+        if not target:
+            return None
+        char_idx = prompt.find(target)
+        if char_idx < 0:
+            return None
+
+        try:
+            enc = self.tokenizer(prompt, return_offsets_mapping=True, add_special_tokens=True)
+            offsets = enc["offset_mapping"]
+        except Exception:  # noqa: BLE001
+            return None
+
+        # The last token overlapping the target span. Taking the final token matches the
+        # production convention of patching at the end of a multi-token protected term.
+        best = None
+        end = char_idx + len(target)
+        for i, span in enumerate(offsets):
+            if not span:
+                continue
+            s, e = span
+            if s is None or e is None or s == e:
+                continue
+            if s < end and e > char_idx:
+                best = i
+        if best is not None:
+            logger.debug("offset-mapping fallback located %r at token %d", target, best)
+        return best
 
     def token_ids(self, text: str) -> list[int]:
         return self.tokenizer.encode(text, add_special_tokens=False)
