@@ -222,8 +222,11 @@ echo "[tist] dry passed; clearing dry-run records so they never enter the real r
 rm -f "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl
 rm -f "$AUDIT"/results/tist/e4/behav_*.parquet
 
-echo "[tist] background pusher every 15 min"
-( while true; do sleep 900; push_results "checkpoint"; done ) &
+echo "[tist] background result sync every 15 min (standalone daemon)"
+# TIST/sync_results.sh replaces the inline pusher this script used to run. It rebases and
+# retries on a rejected push, counts the records it ships, and pushes once more on SIGTERM,
+# none of which the inline one-liner did.
+INTERVAL=900 bash "$TIST/sync_results.sh" >> "$TIST/logs/sync_boot.log" 2>&1 &
 PUSHER=$!
 
 echo "[tist] MAIN run"
@@ -244,8 +247,12 @@ while true; do
   sleep 60
 done
 
-kill "$PUSHER" 2>/dev/null || true
+# SIGTERM makes the sync daemon push one last time before exiting, so the final results
+# ship even if they landed inside the last interval.
+kill -TERM "$PUSHER" 2>/dev/null || true
+sleep 20
 touch "$AUDIT/results/tist/TIST_GPU_DONE"
+bash "$TIST/sync_results.sh" --once >> "$TIST/logs/sync_boot.log" 2>&1 || true
 push_results "COMPLETE"
 echo "[tist] COMPLETE"
 sleep infinity
