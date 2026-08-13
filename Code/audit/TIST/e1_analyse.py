@@ -342,6 +342,89 @@ def e1_6() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Cross-stack consistency (not a reviewer request; needed because the stack moved)
+# ---------------------------------------------------------------------------
+def consistency() -> pd.DataFrame:
+    """
+    Compare the battery's real patch against the stored production commutator.
+
+    The production CDVA ran on torch 2.5.1 + cu124 with flash-attention; the TIST battery
+    runs on torch 2.13.0 + cu130 with sdpa, because the pinned torch did not survive
+    dependency resolution in the container. E1's internal comparisons are unaffected,
+    since every condition runs on the same stack, but E1.4 and E4 are read against stored
+    English values and that comparison assumes the two stacks agree.
+
+    No extra inference is needed to check it. `real_single` is computed exactly as
+    GPU_CPU/utils_attention.patch_activation computes `delta_logit`: every layer patched
+    at the protected position, read as the change in the bias-answer logit, with the same
+    bias-answer rule. Pairs present in both runs can therefore be correlated directly.
+
+    Only clean pairs overlap: production ran on the raw pentad, the battery on the pentad
+    with the 297 degenerate slot-c variants removed, so the degenerate pairs are absent
+    here by construction.
+
+    A high correlation with a small mean absolute difference licenses the cross-run
+    comparison. A low one means the multilingual and control results must be read against
+    a re-run English baseline instead, and the paper must say so.
+    """
+    stored_path = RESULTS_DIR / "cdva_results.parquet"
+    if not stored_path.exists():
+        return pd.DataFrame()
+    stored = pd.read_parquet(stored_path)
+    stored = stored[stored["success_flag"] == True]  # noqa: E712
+
+    rows = []
+    for model in _OSM:
+        df = _read_jsonl(E1 / f"battery_{model}.jsonl")
+        if df.empty or "real_single" not in df.columns:
+            continue
+        s = stored[stored["model_name"] == model][
+            ["seed_id", "pair_A_subvariant", "pair_B_subvariant", "delta_logit"]
+        ].rename(columns={"pair_A_subvariant": "sub_a", "pair_B_subvariant": "sub_b"})
+        m = df[["seed_id", "sub_a", "sub_b", "real_single"]].merge(
+            s, on=["seed_id", "sub_a", "sub_b"], how="inner"
+        ).dropna()
+        if len(m) < 30:
+            continue
+        diff = (m["real_single"] - m["delta_logit"]).abs()
+        pear = float(np.corrcoef(m["real_single"], m["delta_logit"])[0, 1])
+        rho, _ = spearmanr(m["real_single"], m["delta_logit"])
+        rows.append(
+            {
+                "model_name": model,
+                "n_overlapping_pairs": int(len(m)),
+                "pearson": pear,
+                "spearman": float(rho),
+                "mean_abs_diff": float(diff.mean()),
+                "median_abs_diff": float(diff.median()),
+                "p95_abs_diff": float(diff.quantile(0.95)),
+                "mean_absC_stored": float(m["delta_logit"].abs().mean()),
+                "mean_absC_rerun": float(m["real_single"].abs().mean()),
+                # A difference worth caring about is one large enough to move a pair
+                # across the threshold, so it is expressed relative to the signal.
+                "mean_abs_diff_over_mean_absC": float(
+                    diff.mean() / m["delta_logit"].abs().mean()
+                ) if m["delta_logit"].abs().mean() else np.nan,
+                "cross_stack_comparable": bool(pear >= 0.99 and diff.mean() < 0.05),
+            }
+        )
+        log.info(
+            "consistency %s: n=%d pearson=%.4f mean|diff|=%.4f",
+            model, len(m), pear, float(diff.mean()),
+        )
+    out = pd.DataFrame(rows)
+    if len(out):
+        out.to_csv(E1 / "stats_e1_7_consistency.csv", index=False)
+        if not out["cross_stack_comparable"].all():
+            log.warning(
+                "cross-stack agreement is weaker than the 0.99 / 0.05 bar on at least one "
+                "model; E1.4 and E4 must be read against a re-run English baseline and the "
+                "manuscript must state this"
+            )
+    return out
+
+
+# ---------------------------------------------------------------------------
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not E1.exists():
@@ -365,6 +448,7 @@ def main() -> None:
         "e1_4_controls": controls,
         "e1_5_mediation": e1_5(),
         "e1_6_metrics": e1_6(),
+        "e1_7_consistency": consistency(),
     }
 
     summary = {k: (len(v) if isinstance(v, pd.DataFrame) else 0) for k, v in results.items()}
