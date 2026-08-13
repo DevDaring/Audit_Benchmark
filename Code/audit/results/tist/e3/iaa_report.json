@@ -1,0 +1,70 @@
+{
+  "n_items": 200,
+  "human": {
+    "status": "awaiting labels",
+    "sheets_present": [],
+    "instruction": "fill iaa_sheet_koushik.csv and iaa_sheet_abhinaba.csv, then rerun: python TIST/e3_annotation.py score"
+  },
+  "llm": {
+    "n_items": 200,
+    "panel": [
+      "deepseek",
+      "gpt4o-mini",
+      "mistral"
+    ],
+    "fleiss_kappa_overall": 0.21950982299163588,
+    "interpretation": "fair",
+    "pass_rate_per_annotator": {
+      "deepseek": 0.835,
+      "gpt4o-mini": 0.395,
+      "mistral": 0.71
+    },
+    "per_criterion": {
+      "c1_gold_invariant": {
+        "fleiss_kappa": 0.3653070372030484,
+        "raw_unanimous_agreement": 0.705,
+        "pass_rate_per_annotator": {
+          "deepseek": 0.88,
+          "gpt4o-mini": 0.82,
+          "mistral": 0.725
+        },
+        "pass_rate_spread": 0.15500000000000003
+      },
+      "c2_no_new_info": {
+        "fleiss_kappa": 0.06352024743685183,
+        "raw_unanimous_agreement": 0.455,
+        "pass_rate_per_annotator": {
+          "deepseek": 0.92,
+          "gpt4o-mini": 0.405,
+          "mistral": 0.885
+        },
+        "pass_rate_spread": 0.515
+      },
+      "c3_grammatical": {
+        "fleiss_kappa": -0.0033444816053396585,
+        "raw_unanimous_agreement": 0.99,
+        "pass_rate_per_annotator": {
+          "deepseek": 1.0,
+          "gpt4o-mini": 1.0,
+          "mistral": 0.99
+        },
+        "pass_rate_spread": 0.010000000000000009
+      },
+      "c4_structure": {
+        "fleiss_kappa": -0.0050251256281513565,
+        "raw_unanimous_agreement": 0.985,
+        "pass_rate_per_annotator": {
+          "deepseek": 0.985,
+          "gpt4o-mini": 1.0,
+          "mistral": 1.0
+        },
+        "pass_rate_spread": 0.015000000000000013
+      }
+    },
+    "most_contested_criterion": "c2_no_new_info",
+    "kappa_paradox_criteria": [
+      "c3_grammatical",
+      "c4_structure"
+    ]
+  }
+}

@@ -39,6 +39,7 @@ Part of the audit codebase (MIRAGE, TIST resubmission).
 
 import argparse
 import json
+import os
 import logging
 import re
 import sys
@@ -58,6 +59,7 @@ from config import (  # noqa: E402
     DEEPSEEK_PRIMARY_MODEL_NAME,
     GEMINI_KEYS,
     GEMINI_MODEL_NAME,
+    OPENROUTER_KEYS,
     MISTRAL_KEYS,
     MISTRAL_MODEL_NAME,
     RANDOM_SEED,
@@ -79,9 +81,18 @@ _MISTRAL_BASE = "https://api.mistral.ai/v1"
 _lock = threading.Lock()
 
 # Three different model families, so the panel is not three views of one model.
+#
+# The Gemini slot was dropped after the first run: all four keys returned 429 for the
+# whole pass and contributed no labels. It is replaced by gpt-4o-mini through OpenRouter,
+# which adds a fourth vendor and, unlike Gemini-2.5-Flash, is not itself one of the eight
+# models under audit. Keeping an evaluated model on the annotation panel would let a
+# system grade the items it is later scored on.
+_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+_OPENROUTER_MODEL = os.getenv("OPENROUTER_PRIMARY_MODEL_NAME", "openai/gpt-4o-mini")
+
 PANEL = [
     ("deepseek", DEEPSEEK_KEYS, DEEPSEEK_API_BASE_URL, DEEPSEEK_PRIMARY_MODEL_NAME),
-    ("gemini", GEMINI_KEYS, _GEMINI_BASE, GEMINI_MODEL_NAME),
+    ("gpt4o-mini", OPENROUTER_KEYS, _OPENROUTER_BASE, _OPENROUTER_MODEL),
     ("mistral", MISTRAL_KEYS, _MISTRAL_BASE, MISTRAL_MODEL_NAME),
 ]
 
@@ -398,6 +409,40 @@ def cmd_score() -> None:
                     "interpretation": _landis_koch(fk),
                     "pass_rate_per_annotator": {c: float(wide[c].mean()) for c in wide.columns},
                 }
+
+                # Per-criterion agreement, to locate which judgement the panel splits on.
+                # A low overall kappa is only actionable once it is attributed.
+                per_crit = {}
+                for crit in CRITERIA:
+                    w = llm.pivot(index="item_no", columns="annotator", values=crit).dropna()
+                    if w.shape[1] < 2 or w.shape[0] < 10:
+                        continue
+                    c2 = np.column_stack([(w == 0).sum(axis=1), (w == 1).sum(axis=1)])
+                    # Raw agreement: the fraction of items on which every annotator gave
+                    # the same label. Reported alongside kappa because kappa is not
+                    # interpretable on its own when a criterion is near-unanimous.
+                    unanimous = float(((w.nunique(axis=1)) == 1).mean())
+                    per_crit[crit] = {
+                        "fleiss_kappa": fleiss_kappa(c2),
+                        "raw_unanimous_agreement": unanimous,
+                        "pass_rate_per_annotator": {c: float(w[c].mean()) for c in w.columns},
+                        "pass_rate_spread": float(w.mean().max() - w.mean().min()),
+                    }
+                report["llm"]["per_criterion"] = per_crit
+
+                if per_crit:
+                    # Select the contested criterion by observed disagreement, NOT by the
+                    # lowest kappa. C3 and C4 draw kappa near zero while three annotators
+                    # agree on 98 to 100% of items: with almost no variance in the labels,
+                    # chance agreement approaches observed agreement and kappa collapses.
+                    # That is the kappa paradox (Feinstein & Cicchetti 1990), not
+                    # disagreement, and reporting it as disagreement would be wrong.
+                    contested = max(per_crit, key=lambda k: 1.0 - per_crit[k]["raw_unanimous_agreement"])
+                    report["llm"]["most_contested_criterion"] = contested
+                    report["llm"]["kappa_paradox_criteria"] = [
+                        k for k, v in per_crit.items()
+                        if v["fleiss_kappa"] < 0.2 and v["raw_unanimous_agreement"] > 0.9
+                    ]
                 majority = (wide.mean(axis=1) >= 0.5).astype(int)
                 majority.rename("llm_majority").to_csv(OUT / "llm_majority.csv")
                 if isinstance(report.get("human"), dict) and "cohen_kappa" in report["human"]:
