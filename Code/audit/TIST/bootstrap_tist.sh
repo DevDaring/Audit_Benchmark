@@ -241,7 +241,9 @@ while true; do
   git -C "$REPO" stash -q --include-untracked >/dev/null 2>&1 || true
   git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1 || true
   git -C "$REPO" stash pop -q >/dev/null 2>&1 || true
-  python3 TIST/run_tist_gpu.py --tasks all > "$TIST/logs/main.log" 2>&1 && break
+  # Models run concurrently. Each is an independent computation sharing only VRAM, so
+  # the results are identical to a sequential run; see TIST/run_parallel.sh.
+  bash "$TIST/run_parallel.sh" > "$TIST/logs/main.log" 2>&1 && break
   tail -40 "$TIST/logs/main.log"
   push_results "main attempt $ATTEMPT exited non-zero"
   sleep 60

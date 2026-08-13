@@ -138,6 +138,10 @@ def task_e1_battery(patcher: Patcher, model_name: str, pentad: pd.DataFrame, lim
     t0 = time.time()
 
     for si, (seed_id, group) in enumerate(seeds):
+        # The memo holds this seed's prompts only. Clearing per seed bounds memory at a
+        # few hundred megabytes while keeping every within-seed reuse.
+        patcher.clear_memo()
+
         bias = _bias_answer(group)
         if not bias:
             continue
@@ -145,6 +149,26 @@ def task_e1_battery(patcher: Patcher, model_name: str, pentad: pd.DataFrame, lim
         if not bias_ids:
             continue
         bias_id = bias_ids[0]
+
+        # One shuffled-control donor per seed rather than one per pair. The control asks
+        # whether an unrelated seed's protected-token activation moves the logit, and a
+        # donor drawn per seed answers that just as well while making its residual cache
+        # reusable across the seed's twenty pairs. Across 596 seeds the donor still
+        # varies widely, so the control keeps its variety.
+        donor_prompt = donor_pos = donor_seed = None
+        for _ in range(5):
+            d_idx = int(rng.integers(0, len(seeds)))
+            if d_idx == si:
+                continue
+            d_seed, d_group = seeds[d_idx]
+            d_c = d_group[d_group["slot"] == "c"]
+            if not len(d_c):
+                continue
+            d_row = d_c.iloc[0]
+            d_pos = patcher.position_of(str(d_row["prompt_text"]), str(d_row["swap_token"]))
+            if d_pos is not None:
+                donor_prompt, donor_pos, donor_seed = str(d_row["prompt_text"]), d_pos, d_seed
+                break
 
         for a, b in _pairs_for_seed(group):
             if (seed_id, a.subvariant, b.subvariant) in done:
@@ -201,21 +225,12 @@ def task_e1_battery(patcher: Patcher, model_name: str, pentad: pd.DataFrame, lim
                     rec[f"placebo_{label}_pos"] = tgt
 
                 # --- E1.1 condition 3: shuffled pair, unrelated seed's protected token ----
-                donor_idx = int(rng.integers(0, len(seeds)))
-                if donor_idx == si:
-                    donor_idx = (donor_idx + 1) % len(seeds)
-                d_seed, d_group = seeds[donor_idx]
-                d_c = d_group[d_group["slot"] == "c"]
-                if len(d_c):
-                    d_row = d_c.iloc[0]
-                    d_prompt, d_tok = str(d_row["prompt_text"]), str(d_row["swap_token"])
-                    d_pos = patcher.position_of(d_prompt, d_tok)
-                    if d_pos is not None:
-                        d_cache = patcher.cache(d_prompt)
-                        lp = patcher.patched_logits(d_cache, d_pos, pb, pos_b)
-                        rec["placebo_shuffled_single"] = metric_single_logit(base_b, lp, bias_id)
-                        rec["placebo_shuffled_kl"] = metric_kl(base_b, lp)
-                        rec["placebo_shuffled_donor"] = d_seed
+                if donor_prompt is not None:
+                    d_cache = patcher.cache(donor_prompt)      # memoised across the seed
+                    lp = patcher.patched_logits(d_cache, donor_pos, pb, pos_b)
+                    rec["placebo_shuffled_single"] = metric_single_logit(base_b, lp, bias_id)
+                    rec["placebo_shuffled_kl"] = metric_kl(base_b, lp)
+                    rec["placebo_shuffled_donor"] = donor_seed
 
                 # --- E1.3: the noising direction, b -> a ----
                 cache_b = patcher.cache(pb)
@@ -258,7 +273,9 @@ def task_e1_layers(patcher: Patcher, model_name: str, pentad: pd.DataFrame, limi
 
     windows = list(range(0, patcher.n_layers, LAYER_STRIDE))
     n = 0
-    for seed_id, group, a, b, bias in units:
+    for u_i, (seed_id, group, a, b, bias) in enumerate(units):
+        if u_i % 25 == 0:
+            patcher.clear_memo()
         pa, pb = str(a.prompt_text), str(b.prompt_text)
         pos_a = patcher.position_of(pa, str(a.swap_token))
         pos_b = patcher.position_of(pb, str(b.swap_token))
@@ -316,6 +333,7 @@ def task_e1_controls(patcher: Patcher, model_name: str, limit: int) -> None:
     n = 0
 
     for seed_id, group in ctrl.groupby("seed_id"):
+        patcher.clear_memo()
         bias = _bias_answer(group)
         ids = patcher.token_ids(bias)
         if not ids:
@@ -393,7 +411,9 @@ def task_e1_mediation(patcher: Patcher, model_name: str, pentad: pd.DataFrame, l
         units = [units[i] for i in sorted(idx)]
 
     n = 0
-    for seed_id, group, a, b, bias in units:
+    for u_i, (seed_id, group, a, b, bias) in enumerate(units):
+        if u_i % 25 == 0:
+            patcher.clear_memo()
         if (seed_id, a.subvariant, b.subvariant) in done:
             continue
         if limit and n >= limit:
@@ -442,6 +462,7 @@ def task_e4_cdva(patcher: Patcher, model_name: str, limit: int) -> None:
         n = n_located = n_total = 0
 
         for seed_id, group in pen.groupby("seed_id"):
+            patcher.clear_memo()
             bias = _bias_answer(group)
             ids = patcher.token_ids(bias) if bias else []
             if not ids:
@@ -515,11 +536,80 @@ def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+def _dispatch_parallel(tasks: list[str], models: list[dict], pool: int, dry: bool,
+                       stagger: int) -> int:
+    """
+    Run one subprocess per model, at most `pool` at a time.
+
+    Safe by construction. Each model is an independent computation: same weights, same
+    prompts, same batch size of one, same kernels. Concurrent processes share only VRAM,
+    and every task already writes to a per-model JSONL keyed by model name, so there is
+    no shared output state. Results are identical to a sequential run.
+
+    Batching several prompts into one forward pass is the other obvious speedup and is
+    deliberately not done: padding changes reduction order and can select different
+    kernels, which moves logits in the last bits. E1.1 turns on separating small effects
+    from smaller ones, so a perturbed forward pass is not worth the wall-clock.
+
+    VRAM on an 80 GB A100, bfloat16: llama ~32 GB (TransformerLens keeps a converted
+    model beside the HF weights), qwen ~16 GB, gemma ~10 GB, phi ~9 GB. Largest first,
+    so a heavy model pairs with a light one. Starts are staggered so two TransformerLens
+    conversions never overlap.
+    """
+    import subprocess
+
+    order = {"llama-3.1-8b-instruct": 0, "qwen2.5-7b-instruct": 1,
+             "gemma-2-2b-it": 2, "phi-4-mini-instruct": 3}
+    names = sorted((m["name"] for m in models), key=lambda n: order.get(n, 99))
+
+    logs = Path(__file__).resolve().parent / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    base = [sys.executable, str(Path(__file__).resolve()), "--tasks", *tasks, "--parallel", "1"]
+    if dry:
+        base.append("--dry")
+
+    running: list[tuple] = []
+    failures: list[str] = []
+    queue = list(names)
+
+    while queue or running:
+        while queue and len(running) < pool:
+            name = queue.pop(0)
+            fh = (logs / f"run_{name}.log").open("w", encoding="utf-8")
+            log.info("launching %s (%d running)", name, len(running) + 1)
+            p = subprocess.Popen(base + ["--models", name], stdout=fh, stderr=subprocess.STDOUT)
+            running.append((p, name, fh))
+            if queue:
+                time.sleep(stagger)
+
+        time.sleep(10)
+        for entry in list(running):
+            p, name, fh = entry
+            if p.poll() is None:
+                continue
+            fh.close()
+            running.remove(entry)
+            if p.returncode != 0:
+                log.error("%s failed rc=%d (TIST/logs/run_%s.log)", name, p.returncode, name)
+                failures.append(name)
+            else:
+                log.info("%s finished", name)
+
+    if failures:
+        log.warning("%d of %d models failed: %s", len(failures), len(names), ", ".join(failures))
+    # Non-zero only if everything failed; a partial run still carries usable results.
+    return 4 if len(failures) == len(names) else 0
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tasks", nargs="+", default=["all"])
     ap.add_argument("--models", nargs="+", default=None)
     ap.add_argument("--dry", action="store_true", help="2 units per task on the real code path")
+    ap.add_argument("--parallel", type=int, default=None,
+                    help="models to run concurrently; default 2 when several are selected")
+    ap.add_argument("--stagger", type=int, default=120,
+                    help="seconds between process launches, so two TL conversions do not overlap")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -530,6 +620,12 @@ def main() -> None:
     tasks = all_tasks if "all" in args.tasks else args.tasks
     models = [m for m in OSM_MODELS if not args.models or m["name"] in args.models]
     limit = 2 if args.dry else 0
+
+    # Fan out over models unless this process is already a single-model worker.
+    pool = args.parallel if args.parallel is not None else (2 if len(models) > 1 else 1)
+    if pool > 1 and len(models) > 1:
+        log.info("dispatching %d models, %d concurrent", len(models), pool)
+        sys.exit(_dispatch_parallel(tasks, models, pool, args.dry, args.stagger))
 
     pentad = _pentad(clean=True)
     log.info("pentad: %d prompts, %d seeds", len(pentad), pentad["seed_id"].nunique())
