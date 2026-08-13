@@ -30,7 +30,7 @@ Thumbs.db
 # ==========================================================================
 /LOG
 *.log
-!Code/mirage/**/*.log
+!Code/audit/**/*.log
 
 # ==========================================================================
 # This public repository holds ONLY Code/mirage and README.md.

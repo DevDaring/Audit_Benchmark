@@ -1,0 +1,66 @@
+---
+# Akash SDL for the TIST resubmission GPU battery (E1 + E4).
+# deploy_tist.py renders the __PLACEHOLDERS__ at submit time; the rendered copy
+# carrying secrets is never written to disk or committed.
+#
+# Sizing: the four audited models are all 8B or smaller in bfloat16, so a 24 GB card
+# holds any single one with room for the TransformerLens activation cache. Models are
+# loaded and unloaded one at a time, never concurrently.
+version: "2.0"
+
+services:
+  gpu:
+    image: nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04
+    command:
+      - bash
+      - -c
+      - >
+        apt-get update -y &&
+        apt-get install -y --no-install-recommends git ca-certificates &&
+        rm -rf /workspace/Audit_Benchmark &&
+        git clone https://github.com/DevDaring/Audit_Benchmark /workspace/Audit_Benchmark &&
+        cd /workspace/Audit_Benchmark/Code/audit/TIST &&
+        bash bootstrap_tist.sh 2>&1 | tee /workspace/boot.log
+    env:
+      - HUGGINGFACE_TOKEN=__HF_TOKEN__
+      - Github_Classic_Token=__GH_TOKEN__
+      - RANDOM_SEED=20260101
+      # hf_transfer moves the ~45 GB of weights far faster than the default client.
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      # Batched behavioural generation. 16 fits comfortably in 24 GB for an 8B model
+      # at the pentad's prompt lengths; lower it here if a provider's card is smaller.
+      - MIRAGE_EVAL_BATCH_SIZE=16
+    expose:
+      - port: 8080
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    gpu:
+      resources:
+        cpu:
+          units: 8
+        memory:
+          size: 48Gi
+        storage:
+          - size: 200Gi
+        gpu:
+          units: 1
+          attributes:
+            vendor:
+              nvidia:
+                - model: __GPU_MODEL__
+  placement:
+    dcloud:
+      pricing:
+        gpu:
+          denom: uakt
+          amount: __MAX_PRICE__
+
+deployment:
+  gpu:
+    dcloud:
+      profile: gpu
+      count: 1
