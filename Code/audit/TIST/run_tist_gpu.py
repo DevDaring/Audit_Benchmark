@@ -673,13 +673,23 @@ def main() -> None:
     limit = 2 if args.dry else 0
 
     # Fan out over models unless this process is already a single-model worker.
-    # Two concurrent, not three. VRAM was never the binding constraint: three models fit
-    # in 80 GB. System RAM is. The SDL requests 48 Gi, TransformerLens stages weights
-    # through CPU memory while converting, and a three-way launch took SIGTERM from the
-    # container with no Python traceback, which is what a cgroup memory kill looks like.
-    # Two costs roughly 1.7 h of wall clock against three and does not risk the run.
-    # Raise it only alongside a larger `memory:` request in sdl_tist.yaml.
-    pool = args.parallel if args.parallel is not None else (2 if len(models) > 1 else 1)
+    # Sequential by default. Multi-process fan-out does not survive on this provider.
+    #
+    # Evidence. Leases 1 and 2 ran all four models sequentially in one process and the dry
+    # run completed normally. Every fan-out attempt died with SIGTERM and no Python
+    # traceback shortly after a second process attached to the GPU: pool of 3 twice, then
+    # pool of 2 with phi and qwen, which together hold about 25 GB of an 80 GB card and
+    # load through NNsight without a TransformerLens conversion. Memory was the first
+    # explanation and it does not fit that pairing. What fits is the provider allocating
+    # the GPU as one indivisible unit and killing a second process that attaches to it.
+    #
+    # The orphaned children completed their work each time, which is why the parent, not
+    # the workers, is the thing being killed.
+    #
+    # Per-seed memoisation still stands and is worth about 45% of the forward passes, so
+    # sequential here is not the naive path. Set --parallel explicitly to override, but
+    # only on a provider known to permit GPU sharing.
+    pool = args.parallel if args.parallel is not None else 1
     if pool > 1 and len(models) > 1:
         log.info("dispatching %d models, %d concurrent", len(models), pool)
         sys.exit(_dispatch_parallel(tasks, models, pool, args.dry, args.stagger))
