@@ -41,7 +41,15 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT="$(cd "$HERE/.." && pwd)"
-POOL="${TIST_PARALLEL:-2}"
+# Default 1. This provider allocates the GPU as one indivisible unit and kills a second
+# process that attaches to it: dry attempts at pool 3 and pool 2 both died with SIGTERM
+# and no Python traceback, while sequential passed. Raise only on a provider known to
+# permit GPU sharing, with TIST_PARALLEL=2.
+#
+# This default must stay in step with the `--parallel` default in run_tist_gpu.py. Having
+# two knobs is what let the main run launch two processes after the dry run had already
+# been fixed to run sequentially.
+POOL="${TIST_PARALLEL:-1}"
 STAGGER="${TIST_STAGGER:-120}"
 EXTRA=("$@")
 
