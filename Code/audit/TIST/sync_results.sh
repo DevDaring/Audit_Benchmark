@@ -80,8 +80,24 @@ push_once() {
 }
 
 _push_once_body() {
-  local n msg
+  local n msg last
   n=$(count_records)
+
+  # Only commit when the record count actually moved.
+  #
+  # The previous version rewrote SYNC_STATUS.txt with a fresh timestamp every cycle, so
+  # `git diff --cached` was never empty and the daemon committed on every interval whether
+  # or not anything had been computed. Commit age therefore carried no information, and the
+  # external stall alarm reported OK four times running through a process that had been
+  # hung for 53 minutes. Silence has to mean "no progress" for a liveness check to be worth
+  # having.
+  last=$(cat "${LAST_COUNT_FILE:-/tmp/tist-last-record-count}" 2>/dev/null || echo "-1")
+  if [ "$n" = "$last" ]; then
+    log "no new records (${n}); skipping the commit so silence stays meaningful"
+    return 0
+  fi
+  echo "$n" > "${LAST_COUNT_FILE:-/tmp/tist-last-record-count}"
+
   msg="tist-sync: ${n} records @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "$msg" > "$AUDIT/results/tist/SYNC_STATUS.txt"
 

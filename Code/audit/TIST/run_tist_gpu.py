@@ -28,6 +28,7 @@ Part of the audit codebase (MIRAGE, TIST resubmission).
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -58,6 +59,75 @@ MEDIATION_SUBSAMPLE = 600
 # ---------------------------------------------------------------------------
 # JSONL checkpointing
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Watchdog
+# ---------------------------------------------------------------------------
+# Lease 5 hung inside the behavioural generation at 504 of 2,644 prompts and sat there for
+# 53 minutes on a billing GPU. Nothing detected it: the process was alive, the container
+# was alive, and the sync daemon kept committing because it rewrites its own status file
+# every cycle, so commit age carried no information about progress.
+#
+# This thread watches the two signals that do mean progress, the total number of result
+# records and the modification time of this process's log, and kills the process when
+# neither moves for WATCHDOG_STALL_MIN minutes. The bootstrap's supervisor retries on a
+# non-zero exit after pulling, and every task resumes from its JSONL, so a kill costs at
+# most one stalled interval rather than the whole run.
+#
+# os._exit is deliberate. A hang inside a CUDA call does not respond to an exception in
+# another thread, and sys.exit only raises in the calling thread.
+WATCHDOG_STALL_MIN = int(os.environ.get("TIST_WATCHDOG_STALL_MIN", "25"))
+WATCHDOG_EXIT_CODE = 9
+
+
+def _result_record_count() -> int:
+    total = 0
+    for sub in ("e1", "e4"):
+        d = OUT / sub
+        if not d.exists():
+            continue
+        for f in d.glob("*.jsonl"):
+            try:
+                with f.open("rb") as fh:
+                    total += sum(1 for _ in fh)
+            except OSError:
+                pass
+    return total
+
+
+def start_watchdog(log_path: Path | None = None) -> None:
+    import threading
+
+    def _watch() -> None:
+        last_change = time.time()
+        last_sig = (-1, -1.0)
+        while True:
+            time.sleep(60)
+            try:
+                recs = _result_record_count()
+                mtime = log_path.stat().st_mtime if log_path and log_path.exists() else 0.0
+            except Exception:  # noqa: BLE001
+                continue
+            sig = (recs, mtime)
+            if sig != last_sig:
+                last_sig, last_change = sig, time.time()
+                continue
+            idle_min = (time.time() - last_change) / 60.0
+            if idle_min >= WATCHDOG_STALL_MIN:
+                log.error(
+                    "WATCHDOG: no new records and no log activity for %.1f minutes "
+                    "(records=%d). Treating this as a hang and exiting %d so the "
+                    "supervisor restarts; completed work resumes from its JSONL.",
+                    idle_min, recs, WATCHDOG_EXIT_CODE,
+                )
+                sys.stderr.flush()
+                os._exit(WATCHDOG_EXIT_CODE)
+
+    t = threading.Thread(target=_watch, name="tist-watchdog", daemon=True)
+    t.start()
+    log.info("watchdog armed: exits after %d min with no records and no log activity",
+             WATCHDOG_STALL_MIN)
+
+
 def _done(path: Path, key_fields: tuple) -> set:
     if not path.exists():
         return set()
@@ -693,6 +763,11 @@ def main() -> None:
     if pool > 1 and len(models) > 1:
         log.info("dispatching %d models, %d concurrent", len(models), pool)
         sys.exit(_dispatch_parallel(tasks, models, pool, args.dry, args.stagger))
+
+    # Arm before any model is loaded, so a hang during loading is caught too.
+    _logs = Path(__file__).resolve().parent / "logs"
+    _lp = _logs / (f"run_{models[0]['name']}.log" if len(models) == 1 else "main.log")
+    start_watchdog(_lp)
 
     pentad = _pentad(clean=True)
     log.info("pentad: %d prompts, %d seeds", len(pentad), pentad["seed_id"].nunique())
