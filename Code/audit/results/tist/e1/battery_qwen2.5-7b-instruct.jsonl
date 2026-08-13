@@ -1,0 +1,2 @@
+{"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "person", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
+{"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "wealthy", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
