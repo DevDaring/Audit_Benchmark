@@ -33,7 +33,10 @@ export PYTHONPATH="$AUDIT:${PYTHONPATH:-}"
 
 echo "[tist] system deps"
 apt-get update -y
-apt-get install -y --no-install-recommends git wget ca-certificates python3 python3-pip python3-venv build-essential
+# python3-dev supplies Python.h, which Triton needs to JIT-compile its CUDA helper. Without
+# it every batched generation call fails to compile and silently falls back to
+# single-prompt decoding, which is several times slower for the behavioural pass.
+apt-get install -y --no-install-recommends git wget ca-certificates python3 python3-pip python3-venv python3-dev build-essential
 
 echo "[tist] python: $(python3 --version)"
 cd "$AUDIT"

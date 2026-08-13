@@ -509,9 +509,37 @@ def task_e4_cdva(patcher: Patcher, model_name: str, limit: int) -> None:
 # ---------------------------------------------------------------------------
 # E4 multilingual behavioural
 # ---------------------------------------------------------------------------
+def _ensure_python_headers() -> None:
+    """
+    Make sure Python.h exists, so Triton can JIT-compile its CUDA helper.
+
+    Without python3-dev, every batched generation call fails to compile and falls back to
+    single-prompt decoding, several times slower over the behavioural pass. The container
+    image ships without headers, so this installs them on first need. It is a no-op
+    anywhere the headers are already present, and a failure here is not fatal: the
+    evaluator still works, just slower.
+    """
+    import subprocess
+    import sysconfig
+
+    inc = sysconfig.get_paths().get("include", "")
+    if inc and (Path(inc) / "Python.h").exists():
+        return
+    log.warning("Python.h missing; installing python3-dev so Triton can batch")
+    try:
+        subprocess.run(["apt-get", "install", "-y", "--no-install-recommends", "python3-dev"],
+                       check=True, capture_output=True, timeout=600)
+        log.info("python3-dev installed; batched generation available")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not install python3-dev (%s); generation stays single-prompt",
+                    str(exc)[:160])
+
+
 def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
     """Reuses the production behavioural evaluator so scoring stays comparable."""
     import uuid
+
+    _ensure_python_headers()
 
     from GPU_CPU.osm_behavioral import evaluate_osm_model
 
