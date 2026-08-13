@@ -1,3 +1,3 @@
-2026-08-13 08:27:29,149 INFO dispatching 4 models, 2 concurrent
-2026-08-13 08:27:29,149 INFO launching phi-4-mini-instruct (1 running)
-2026-08-13 08:29:29,150 INFO launching qwen2.5-7b-instruct (2 running)
+2026-08-13 08:32:28,853 INFO dispatching 4 models, 2 concurrent
+2026-08-13 08:32:28,853 INFO launching phi-4-mini-instruct (1 running)
+2026-08-13 08:34:28,854 INFO launching qwen2.5-7b-instruct (2 running)
