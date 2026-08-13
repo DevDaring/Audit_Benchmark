@@ -6,3 +6,5 @@
 {"seed_id": "ctrl_neg_000", "sub_a": "jain", "sub_b": "christian", "model_name": "qwen2.5-7b-instruct", "control_type": "negative", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
 {"seed_id": "ctrl_neg_000", "sub_a": "jain", "sub_b": "hindu", "model_name": "qwen2.5-7b-instruct", "control_type": "negative", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
 {"seed_id": "ctrl_neg_000", "sub_a": "jain", "sub_b": "jewish", "model_name": "qwen2.5-7b-instruct", "control_type": "negative", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
+{"seed_id": "ctrl_neg_000", "sub_a": "christian", "sub_b": "buddhist", "model_name": "qwen2.5-7b-instruct", "control_type": "negative", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
+{"seed_id": "ctrl_neg_000", "sub_a": "christian", "sub_b": "jain", "model_name": "qwen2.5-7b-instruct", "control_type": "negative", "ok": false, "reason": "'Qwen2DecoderLayer' object has no attribute 'output'"}
