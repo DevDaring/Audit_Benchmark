@@ -1,14 +1,41 @@
-# CURE: Causal Audit and Repair of Bias Benchmarks
+# SCOPE: Patchscope-Guided Surgical Debiasing of Social Bias in Language Models
 
-CURE is a two-stage instrument for large language model fairness. It first audits a
-bias benchmark to find items whose decision routes through a protected attribute, even
-when the surface answer looks fair, and it then repairs that routing with a surgical,
-inference-time intervention confirmed by the same causal test. The audit half lives in
-`Code/audit`; the repair half, and the comparison against recent debiasing methods,
-lives in `Code/CURE`.
+SCOPE is a two-stage instrument for trustworthy language-model fairness. It first **audits**
+a bias benchmark to find the items whose answer routes causally through a protected
+attribute, even when the surface answer looks fair. It then **repairs** that routing with a
+**localised, verified, load-bearing-aware** edit: a Patchscope decides *where* the
+attribute is encoded, the edit removes it only there and only orthogonal to the model's
+load-bearing structure, and a second Patchscope confirms the removal.
 
-This repository is a one-stop solution. A reader can reproduce the whole pipeline from
-this file alone.
+The audit lives in `Code/audit`. The repair, the comparison against recent debiasing
+methods, the held-out and behavioural tests, the ablations, and the prognosis live in
+`Code/SCOPE`. A reader can reproduce the whole pipeline from this file alone.
+
+---
+
+## 0. Honest headline (read this first)
+
+1. **Audit.** A benchmark score hides a large validity gap. The causal commutator finds
+   items that look fair but compute unfairly, which no behavioural audit can detect.
+2. **Prognosis.** The audit severity predicts how hard a model is to repair, so an auditor
+   can read the cost of a fix from the audit alone.
+3. **Surgical repair.** SCOPE localises the protected attribute with a Patchscope, edits
+   only the layers where it is decodable, and stays orthogonal to the massive-activation
+   dimensions the model relies on. The design target is to remove the behavioural bias
+   while keeping accuracy, where all-layer erasure does not.
+
+**Outcome of the full four-model run (numbers in Section 3.4).** SCOPE beats the closest
+prior method, Faithful-Patchscopes, on **2 of 4** models (Qwen2.5-7B, Phi-4-mini) and is the
+**least destructive** edit on every model — its four-option accuracy cost stays within
+±0.02 while other methods lose up to 55 points. The two design mechanisms do **not**
+generalise: the Patchscope localisation never beats a random choice of layers, and the
+massive-activation protection improves utility on only one model. The honest reading is a
+utility-preserving debiaser plus a negative result on decodability-localisation — on Llama
+and Gemma the bias is fused with the massive-activation dimensions SCOPE protects, so a
+localised edit cannot reach it.
+
+Every number is produced by the same evaluators on the same pairs, and nothing is
+hard-coded to win. The run reports the honest outcome.
 
 ---
 
@@ -16,70 +43,161 @@ this file alone.
 
 | Folder | Role | Summary |
 |--------|------|---------|
-| `Code/audit` | Diagnosis | The causal discriminative-validity audit. A five-slot behavioural probe (the pentad) plus a causal intervention (CDVA) that patches the protected-attribute representation and reads the change in the answer logit. Produces the validity leaderboard and the residual of items that pass behaviourally yet fail causally. |
-| `Code/CURE`  | Repair   | Uses the audit's causal direction to erase the protected subspace at inference, re-runs the audit to confirm removal, measures the utility cost at a utility-aware operating rank, and compares against eight debiasing methods that read an independent demographic signal. Also fits the relation between the audit score and the repair effort. |
+| `Code/audit` | Diagnosis | The causal discriminative-validity audit. A behavioural probe over the five-slot "pentad" plus a causal intervention that patches the protected-attribute residual at every layer and reads the change in the answer logit. Produces the validity leaderboard and the commutator results. |
+| `Code/SCOPE` | Repair + study | Localises the attribute with a Patchscope, builds the protected edit, re-audits, measures the utility cost, compares against nine debiasing baselines (including Faithful-Patchscopes), runs the held-out and behavioural tests and the ablations, and fits the prognosis. |
 
-The repair runs on the same four open models, the same three datasets, and the same
-causal stack as the audit, so every comparison is fair.
-
----
-
-## 2. The result story: diagnose, then cure
-
-1. Diagnose. A benchmark score hides a large validity gap, and behavioural signals do
-   not predict the causal outcome. There is an invisible residual: items that look fair
-   but compute unfairly, which no behavioural audit can detect.
-2. Cure. The same causal direction that detects the bias is projected out of the
-   residual stream at the protected position. Re-running the audit shows the residual
-   commutator drop. CURE removes more causal bias than the eight baselines on three of
-   the four models, but the gain sits on a fairness-utility frontier: on the severest
-   model the audited bias subspace coincides with massive-activation directions, so
-   removing it costs task accuracy. The repair pays its cost at a utility-aware operating
-   rank, and reports that cost honestly rather than hiding it.
-3. Prognosis. The audit score predicts the repair effort, so an auditor can estimate the
-   cost of fixing a model from the audit alone. Per pair the audit score forecasts the
-   rank needed to repair it (Spearman 0.58 to 0.63); per model the audit severity tracks
-   the utility cost of repair.
-
-The headline claim: CURE removes causal failures that no behavioural method can detect,
-removes more causal bias than eight recent debiasing methods on most models, and the
-audit score forecasts both the effort and the cost of repair. The full write-up is the
-TACL submission in `Submission2/` (see `Submission2/submission_notes.md`).
+**Models** (instruction-tuned): Llama-3.1-8B and Gemma-2-2B via TransformerLens;
+Qwen2.5-7B and Phi-4-mini via NNsight. **Datasets**: BBQ, CrowS-Pairs, StereoSet, folded
+into a 596-seed "pentad" over ten demographic axes.
 
 ---
 
-## 3. Environment (exact)
+## 2. The audit: procedure (`Code/audit`)
 
-The operating system must match the precompiled flash-attention wheel.
+### 2.1 The pentad dataset
+Each seed is a template with a demographic slot, expanded into five slots (a to e) and
+several sub-variants (`Dataset/seeds/pentad_dataset.parquet`). Slot `a` carries the clean
+(disambiguated) prompt; slot `c` carries the demographic swaps used by the commutator.
 
-- OS: Ubuntu 24.04 LTS, x86_64 (CUDA image `nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04`).
-- Python: 3.12.
-- Torch: `torch==2.5.1` from the cu124 index.
-- CUDA: 12.x.
-- GPU: a single 24 GB or larger card is enough for the 2 to 8 billion parameter models.
-- No virtual environment. Install globally with `--break-system-packages`.
+### 2.2 The causal commutator
+`GPU_CPU/cdva_patching.py` swaps the demographic token (`a -> b`) and, via activation
+patching, writes the swapped-token residual from the run on `a` into the run on `b` **at
+every layer**, then reads the change in the gold-option logit:
 
-Install sequence (also automated by `Code/CURE/bootstrap.sh`):
-
-```bash
-pip3 install --break-system-packages torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
-pip3 install --break-system-packages -r Code/CURE/requirements_cure.txt
-pip3 install --break-system-packages --no-deps transformer_lens==2.18.0
-# precompiled flash-attention (do not build from source)
-wget -q https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl -O /tmp/fa.whl
-pip3 install --break-system-packages --no-deps /tmp/fa.whl
+```
+C(a, b) = logit_gold( swap(a -> b) ) - logit_gold( a )      # the commutator
 ```
 
-Flash-attention is required for run speed. The dry run verifies it with a real forward
-pass and fails loud if it is missing. A debug override `CURE_ALLOW_SDPA=1` exists but
-logs a loud warning and runs slowly.
+`C ~ 0` means the answer does not depend on the protected attribute. A large `|C|` means it
+does. The threshold `tau = 0.7644` is the 75th percentile of `|C|`. Aggregates: **severity**
+(mean `|C|`), **commutativity index** (fraction of seeds all below `tau`), and the
+**validity gap** (native pass rate minus the audit-robust rate).
+
+### 2.3 Run the audit
+```bash
+cd Code/audit
+python3 GPU_CPU/run_gpu_pipeline.py     # behavioural eval + CDVA patching (GPU)
+python3 run_cpu_full.py                 # scoring, leaderboard, statistics (CPU)
+```
+Outputs in `Code/audit/results/` (`cdva_results.parquet`, `leaderboard.parquet`,
+`validity_gap_leaderboard.parquet`, `scored_results.parquet`).
 
 ---
 
-## 4. Secrets and the `.env` contract
+## 3. The repair: SCOPE procedure (`Code/SCOPE`)
+
+Three stages and a verification, all inference-only (no fine-tuning).
+
+| Stage | What it does | File |
+|---|---|---|
+| 1. Localise | A Few-Shot Token-Identity Patchscope decodes, per layer, how strongly the protected attribute is readable from the residual at the swapped position. The localised layers are those with high decodability. | `scope.py` (`decodability_map`, `localise`) |
+| 2. Protect | At the localised layers, estimate the demographic direction and remove its components on the top-`MASSIVE_K` massive-activation dimensions, so the edit is orthogonal to the load-bearing structure. A layer whose direction is essentially load-bearing is dropped. | `scope.py` (`build_scope_basis`) |
+| 3. Edit | The result is a per-(localised layer) rank-1 basis. Passing it to the shared evaluators edits only those layers with the protected direction. | `scope.py`, `erase.py` (`ErasureContext`) |
+| Verify | Re-decode the edited representation with the same Patchscope; the decodability of the attribute must drop, which the paper reports against the behavioural flip-rate drop. | `scope.py` (`decodability_map`, `edit_basis=`) |
+
+### 3.1 Utility-aware localisation
+`run_scope.py::select_scope_basis` climbs a percentile ladder (lower percentile = more
+layers = more removal) and keeps the most aggressive edit whose four-option accuracy drop
+stays within the budget (`MAX_UTILITY_COST = 0.15`), else the least-damaging edit.
+
+### 3.2 Baselines on an independent signal
+The nine baselines (`baselines.py`) derive their bias direction from an **independent** set
+of 310 demographic-contrast templates, not from the audit pairs, and include
+**Faithful-Patchscopes** (`patchscopes`), the closest prior method. They are faithful
+re-implementations on one shared protocol; SCOPE alone reads the causal audit signal, so any
+advantage isolates the value of that signal and the localisation.
+
+### 3.3 Run the study (single launch)
+```bash
+cd Code/SCOPE
+python3 run_scope.py --mode dry    # validate the full path on two pairs per model
+python3 run_scope.py --mode main   # localise + edit + verify, head-to-head vs nine baselines,
+                                    # held-out + behavioural, ablations, prognosis; 15-min checkpoints
+```
+Outputs in `Code/SCOPE/results/`: `scope_localization_<model>.json`,
+`scope_final_<model>.parquet` (SCOPE vs nine baselines), `scope_extra_<model>.parquet`
+(held-out bias removed + behavioural accuracy + answer-flip rate),
+`scope_ablation_<model>.parquet` (localised vs all-layer, protect vs no-protect, random),
+`scope_prognosis_<model>.{parquet,json}`, `SCOPE_DONE`.
+
+A cloud GPU bootstrap is provided: `Code/SCOPE/bootstrap_scope.sh` pins the environment,
+downloads the models, runs the dry check, then the main run, with 15-minute GitHub
+checkpoints and pull-retry on failure (a fix needs no redeploy).
+
+### 3.4 Results of the completed run
+
+The full run (four models, 2026-06-21) is reproduced in `Code/SCOPE/results/`. Every
+`scope_final` has the ten methods, no error rows, and `n_pairs = 1000`.
+`causal_residual_removed` (`crr`) is the fraction of the 1000 shared eval pairs whose
+audited commutator falls under `tau` after the edit; `util_cost` is the four-option
+accuracy drop (negative = accuracy improved).
+
+**Baseline reproducibility.** Re-running the nine baselines on independent hardware
+reproduces their figures within numerical noise on all four models (mean |Δ-crr|
+0.008–0.012, mixed sign — `crr` is a threshold fraction, so last-bit activation
+differences across GPUs flip a handful of near-threshold pairs), so the comparison set is
+stable across runs.
+
+**SCOPE vs Faithful-Patchscopes** (head-to-head; the held-out behavioural test agrees):
+
+| Model | SCOPE crr / util | Faithful-Patchscopes crr / util | Winner |
+|---|---|---|---|
+| Llama-3.1-8B | 0.495 / −0.020 | 0.808 / −0.030 | Patchscopes |
+| Qwen2.5-7B | 0.463 / −0.020 | 0.464 / **+0.164** | **SCOPE** |
+| Gemma-2-2B | 0.377 / +0.020 | 0.707 / +0.020 | Patchscopes |
+| Phi-4-mini | 0.405 / −0.005 | 0.369 / +0.035 | **SCOPE** |
+
+SCOPE wins where the aggressive ablation backfires (Qwen: Patchscopes loses 16 accuracy
+points; Phi: Patchscopes removes less bias). Where Patchscopes stays both strong and safe
+(Llama, Gemma) it removes more bias at equal cost.
+
+**Utility is the consistent SCOPE property.** Held-out accuracy change vs the unedited
+model: SCOPE **+0.006** (Llama), **+0.048** (Qwen), **−0.044** (Gemma), **−0.012** (Phi) —
+the smallest or near-smallest of any edit on every model, while
+`generic_erase`/`biasgym`/`nofreelunch` lose 12–55 points. SCOPE never collapses the model.
+
+---
+
+## 4. Ablations (these keep the paper honest)
+
+`scope_ablation_<model>.parquet` pits the localised + protected edit against three variants.
+The completed run gives an honest, partly-negative result:
+
+1. **Localisation** (SCOPE vs random vs all-layer sites). The Patchscope-localised layers do
+   **not** beat a random choice of the same number of layers on any model — `scope_random`
+   removes as much or more causal bias (e.g. Llama 0.638 vs 0.495, Gemma 0.453 vs 0.377).
+   Decodability-localisation does not add value in this study.
+2. **Massive-activation protection** (orthogonal-to-massive vs direct removal). Protection
+   preserves utility on **one** model (Qwen: `scope_noprotect` costs 6 accuracy points more);
+   on Gemma it slightly hurts. Where the bias is not fused with the massive dimensions,
+   protection is what gives SCOPE its safety.
+3. **Verification calibration** — decodability before vs after the edit, recorded per model in
+   `scope_localization_<model>.json`.
+
+---
+
+## 5. Environment (exact)
+
+The OS must match the precompiled flash-attention wheel.
+
+- OS: Ubuntu 24.04 LTS, x86_64 (CUDA image `nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04`).
+- Python 3.12, Torch `2.5.1` (cu124), CUDA 12.x driver, a single 48 GB GPU recommended.
+- No virtual environment; install globally with `--break-system-packages`.
+
+```bash
+pip3 install --break-system-packages torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip3 install --break-system-packages -r Code/SCOPE/requirements_scope.txt --extra-index-url https://download.pytorch.org/whl/cu124
+pip3 install --break-system-packages --no-deps transformer_lens==2.18.0
+pip3 install --break-system-packages --no-deps \
+  https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
+```
+
+---
+
+## 6. Secrets and the `.env` contract
 
 Every key is read from the environment. No secret is ever written into a tracked file.
-Copy `Code/CURE/.env.example` to `Code/CURE/.env` and fill the values. The `.env` is
+Copy `Code/SCOPE/.env.example` to `Code/SCOPE/.env` and fill the values. The `.env` is
 git-ignored and never pushed.
 
 | Variable | Purpose |
@@ -87,137 +205,48 @@ git-ignored and never pushed.
 | `HUGGINGFACE_TOKEN` | Model download. |
 | `Github_Classic_Token` | Checkpoint pushes. |
 | `RANDOM_SEED` | Reproducibility (default 20260101). |
-| `GEMINI_API_KEY_1..4` | Primary judge, gemini-2.5-flash (the four Gemini / GCP keys). |
-| `DEEPSEEK_API_KEY_1..2` | Secondary judge, deepseek-chat. |
-| `MISTRAL_API_KEY1..2` | Tertiary judge, mistral-small-latest. |
-| `OPENROUTER_API_KEY_1..2` | Alternative gateway. |
-| `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` | Required by the audit config; unused by CURE (dummy values are fine). |
+| `GEMINI_API_KEY_1..4` | Judge (answer extraction fallback), gemini-2.5-flash. |
+| `DEEPSEEK_API_KEY_1..2`, `MISTRAL_API_KEY1..2`, `OPENROUTER_API_KEY_1..2` | Fallback judge tiers. |
+
+SCOPE knobs (optional, with defaults): `SCOPE_LOCALIZE_PAIRS`, `SCOPE_DECODE_PCTILE`,
+`SCOPE_PCTILE_LADDER`, `SCOPE_MASSIVE_K`, `SCOPE_PROTECT`, `SCOPE_TARGET_PROMPT`.
 
 ---
 
-## 5. Judge and answer-extraction design
-
-The judge is used to extract a structured answer when the deterministic JSON parse fails,
-and for any model-as-judge step. One active tier is chosen by `CURE_JUDGE_PROVIDER`
-(default `gemini`). Keys are round-robined within the active tier. There is no automatic
-fallback between tiers: if the active tier fails for an item, the item is recorded as a
-judge failure and logged. This keeps every judgement in a run from one model, which
-protects reproducibility.
-
-| Tier | Provider | Model | Keys |
-|------|----------|-------|------|
-| Primary | Google Gemini | gemini-2.5-flash | `GEMINI_API_KEY_1..4` |
-| Secondary | DeepSeek | deepseek-chat | `DEEPSEEK_API_KEY_1..2` |
-| Tertiary | Mistral | mistral-small-latest | `MISTRAL_API_KEY1..2` |
-| Gateway | OpenRouter | configurable | `OPENROUTER_API_KEY_1..2` |
-
----
-
-## 6. How to run
-
-```bash
-cd Code/CURE
-python3 run_cure.py --mode dry     # validate the whole environment on two pairs
-python3 run_cure.py --mode main    # run E1 to E6 for all four models
-```
-
-The dry run validates: API connectivity across every provider and key, the per-model
-code path on two pairs for all four models, flash-attention by a real forward pass, a
-secret scan of the tracked tree, and an integrity self-test. It exits non-zero on any
-failure.
-
-The main run checkpoints to GitHub every 15 minutes and after each model. Resume skips
-any unit whose result parquet is present and non-empty, so a released VM restarts from
-the last correct results. A `results/DONE` marker is written when all models complete.
-
-The experiments:
-
-| ID | Experiment | Output |
-|----|-----------|--------|
-| E1 | Extract the bias subspace from the audit counterfactual activations | per-(model, rank) basis |
-| E2 | Surgical erasure at the protected position | inference hook |
-| E3 | Re-audit the erased model | `cure_recovery_sweep_*.parquet` |
-| E4 | Utility cost across erasure rank; pick the utility-aware operating rank | `cure_rankcurve_*.json` |
-| E5 | Eight debiasing baselines on an independent demographic signal | `cure_final_*.parquet` |
-| E6 | Audit score versus repair effort | `cure_prognosis_*.parquet`, `.json` |
-
-### Cost controls (safe, statistically sound)
-
-The run is expedited without weakening any reported number. The bias subspace is
-estimated once from a bounded subset and sliced to every rank (no per-rank
-re-extraction). The headline residual-removed and the per-model recovery run on the
-full pair set at one operating rank, so they keep the full audit sample and stay in
-harmony with the audit. The multi-rank sweep, the fairness-utility curve, and the
-six-baseline head-to-head run on a fixed-seed, benchmark-stratified subset of about a
-thousand pairs, which gives tight confidence intervals for the prognosis and the
-comparison. Knobs (with safe defaults) in `.env`: `CURE_HEADLINE_RANK`,
-`CURE_SUBSPACE_PAIRS`, `CURE_SWEEP_SUBSET`, `CURE_E4_MAX_TOKENS`, `CURE_E4_LIMIT`.
-
-The eight baselines all derive their bias direction from an independent set of 310
-demographic-contrast templates, not from the audit pairs, so CURE alone reads the causal
-audit signal and any advantage isolates the value of that signal. They are: prompt
-self-debiasing, generic non-audit-guided erasure, mean-difference steering, FairSteer
-(arXiv:2504.14492), BiasGym (arXiv:2508.08855), SAE-Debias (arXiv:2511.00177), H-SAL
-(arXiv:2606.12088), and logit-space steering from the No Free Lunch study
-(arXiv:2511.18635). The published-method adapters in `Code/CURE/baselines.py` carry
-citations and are wired with the official code or a faithful re-implementation.
-Faithful-Patchscopes (arXiv:2602.00300) is implemented but kept out of the head-to-head,
-since its layer-localisation mechanism is not comparable on the shared erasure protocol.
-
----
-
-## 7. Integrity guarantees
-
-Every run starts with `integrity.py`, which checks each result parquet for corruption
-(corrupt files are quarantined and recomputed) and removes duplicate primary keys, then
-writes `results/integrity_report.json`. Dry-run test artifacts under `results/dryrun` are
-never pushed.
-
----
-
-## 8. Repository map
+## 7. Repository map
 
 ```
 Code/
-  audit/                 the causal discriminative-validity audit (diagnosis)
-    GPU_CPU/             behavioural evaluation and CDVA patching
-    CPU_Only/            scoring, statistics, leaderboard
-    Dataset/             pentad generator and seed manifests
-    results/             behavioural and CDVA result artifacts
-  CURE/                  the repair extension (this work)
-    run_cure.py          single entry point (dry, main)
-    config_cure.py       loads .env, reuses the audit models and dataset
-    judge_api.py         judge and answer extraction (round-robin, no cross-tier fallback)
-    erase.py             E1 subspace extraction, E2 erasure hooks
-    experiments.py       E3 re-audit, E4 utility, E6 prognosis
-    baselines.py         E5 comparative methods
-    integrity.py         duplicate and corruption checks
-    checkpoint.py        resume-safe 15-minute GitHub pushes
-    dry_checks.py        all dry-run validations
-    bootstrap.sh         GPU VM entrypoint
-    requirements_cure.txt
-    .env.example
-Submission2/             the TACL paper (LaTeX), figures, references, submission_notes.md
-README.md                this file
+  audit/                  the causal discriminative-validity audit (diagnosis)
+    Dataset/seeds/        the pentad dataset
+    GPU_CPU/              behavioural evaluation (osm_behavioral) and CDVA patching
+    CPU_Only/             scoring, statistics, leaderboard
+    results/              cdva_results, leaderboards, validity gap
+  SCOPE/                  the repair, comparison, ablations, and prognosis
+    scope.py              Patchscope localisation + massive-activation-protected edit
+    run_scope.py          single entry point (dry, main) for the whole study
+    scope_eval.py         held-out split + behavioural readout
+    experiments.py        commutator re-audit, utility, demographic signal
+    erase.py              activation caching + projection eraser (used by SCOPE)
+    baselines.py          nine debiasing baselines (incl. Faithful-Patchscopes)
+    config_scope.py       loads .env, models, datasets, tau, judge, SCOPE knobs
+    judge_api.py          judge / answer extraction (round-robin, no cross-tier fallback)
+    integrity.py          duplicate and corruption checks
+    checkpoint.py         resume-safe 15-minute GitHub pushes
+    bootstrap_scope.sh    GPU VM entrypoint (single launch)
+    results/              all SCOPE study artifacts
+README.md                 this file
 ```
 
 ---
 
-## 9. Troubleshooting
+## 8. Citations
 
-- Flash-attention import fails: the wheel must match the OS, Python, torch, and CUDA. The
-  pinned wheel targets Ubuntu 24.04, Python 3.12, torch 2.5.x, CUDA 12.x. Change the
-  wheel tag if you change any of these.
-- A judge key is dead: the dry-run `results/dryrun/api_check.json` reports each key. The
-  run does not cross tiers; switch `CURE_JUDGE_PROVIDER` or replace the key.
-- A quarantined parquet: a corrupt result is moved to `results/quarantine` and recomputed
-  on the next run; no action is needed.
-
----
-
-## 10. Citations
-
-The repair builds on LEACE concept erasure (Belrose et al. 2023, arXiv:2306.03819),
-activation patching (Meng et al. 2022, arXiv:2202.05262), and the interventional account
-of explanation (Pearl 2009). The audit half is the causal discriminative-validity audit
-described in the accompanying paper.
+SCOPE builds on Patchscopes (Ghandeharioun et al. 2024, arXiv:2401.06102) for the
+localisation and verification, the closed-form projection eraser (Belrose et al. 2023,
+arXiv:2306.03819), and activation patching (Meng et al. 2022, arXiv:2202.05262). The
+load-bearing reading of the audited direction follows the massive-activation literature
+(Sun et al. 2024, arXiv:2402.17762; Yu et al. 2024, arXiv:2411.07191; Oh et al. 2024,
+arXiv:2410.01866). The closest prior method, Faithful-Patchscopes (Gong et al. 2026,
+arXiv:2602.00300), is included as a baseline. The audit half is the causal
+discriminative-validity audit described in the accompanying paper.

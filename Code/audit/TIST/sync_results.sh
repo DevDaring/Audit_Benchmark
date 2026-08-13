@@ -63,7 +63,23 @@ count_records() {
   echo "${n:-0}"
 }
 
+# One writer at a time. The bootstrap's push_results and this daemon both run git in the
+# same working tree, and `git stash` blocking on another process's index.lock hangs
+# without a message. That is the most likely reason lease 4's bootstrap went silent while
+# the container stayed alive: not a crash, a wedge on a lock. Every git sequence in the
+# repo now takes this mutex, and waits rather than racing.
+GIT_LOCK="${GIT_LOCK:-/tmp/tist-git.lock}"
+
 push_once() {
+  if command -v flock >/dev/null 2>&1; then
+    flock -w 600 "$GIT_LOCK" bash -c "$(declare -f _push_once_body count_records log); \
+      REPO='$REPO' AUDIT='$AUDIT' REMOTE='$REMOTE' LOG='$LOG' _push_once_body"
+    return $?
+  fi
+  _push_once_body
+}
+
+_push_once_body() {
   local n msg
   n=$(count_records)
   msg="tist-sync: ${n} records @ $(date -u +%Y-%m-%dT%H:%M:%SZ)"

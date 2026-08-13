@@ -71,7 +71,22 @@ if [ -n "${Github_Classic_Token:-}" ]; then
   git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/DevDaring/Audit_Benchmark.git"
 fi
 
+GIT_LOCK=/tmp/tist-git.lock
+
 push_results() {
+  # Serialise against the sync daemon. Both write the same working tree, and `git stash`
+  # blocking on another process's index.lock hangs with no message, which is the most
+  # likely reason a previous lease went quiet while its container stayed alive. Waiting
+  # for the lock is correct; racing for it is not.
+  if command -v flock >/dev/null 2>&1; then
+    flock -w 600 "$GIT_LOCK" bash -c "$(declare -f _push_results_body); \
+      REPO='$REPO' AUDIT='$AUDIT' TIST='$TIST' _push_results_body '$1'"
+    return $?
+  fi
+  _push_results_body "$1"
+}
+
+_push_results_body() {
   # A failed `git pull --rebase` leaves the repo mid-rebase, and because the previous
   # version sent every git command to /dev/null, that state was invisible: the first
   # conflict wedged the repo and every later checkpoint failed silently, including the
@@ -210,8 +225,16 @@ tail -60 "$TIST/logs/dryrun.log"
 # every model failed to load and nothing was computed, so the supervisor declared COMPLETE
 # and the GPU idled at cost. Require actual output before proceeding.
 pull_fix() {
-  # Bring in any fix pushed since the lease started. Results are force-added, so they
-  # are stashed across the rebase to avoid a conflict with the runner's own pushes.
+  # Bring in any fix pushed since the lease started. Results are force-added, so they are
+  # stashed across the rebase. Takes the same mutex as the pushers: an unlocked `git stash`
+  # here can block on the sync daemon's index.lock and hang the bootstrap with no message.
+  if command -v flock >/dev/null 2>&1; then
+    flock -w 600 "$GIT_LOCK" bash -c "
+      git -C '$REPO' stash -q --include-untracked >/dev/null 2>&1 || true
+      git -C '$REPO' pull --rebase -q origin main >/dev/null 2>&1 || true
+      git -C '$REPO' stash pop -q >/dev/null 2>&1 || true"
+    return 0
+  fi
   git -C "$REPO" stash -q --include-untracked >/dev/null 2>&1 || true
   git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1 || true
   git -C "$REPO" stash pop -q >/dev/null 2>&1 || true
