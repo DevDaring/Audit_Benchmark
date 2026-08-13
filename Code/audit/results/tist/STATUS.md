@@ -20,7 +20,37 @@ Updated at the end of Phase 1 (CPU work, code, deployment assets).
 
 | Item | Progress |
 |---|---|
-| E4 translation, Hindi and Bengali | ~100 of 508 seed x language units. About 10% fail verbatim validation and are retried on the next pass. |
+| GPU battery, Akash A100 80 GB | Lease 4 (dseq 1786608581463). Longest-job-first, three models concurrent. |
+
+## Lease history, and what each failure taught
+
+Four leases were needed. Each failure produced a permanent guard, so the record is kept
+here rather than tidied away; three of the four faults were in this repository's own code.
+
+| # | GPU | Outcome | Fault | Guard added |
+|---|---|---|---|---|
+| 1 | RTX 4090 | reported COMPLETE having computed nothing | `attn_implementation="flash_attention_2"` requested unconditionally; transformers raises rather than degrading, so all four models failed to load. `run_tist_gpu` caught the failures and still exited 0. | sdpa fallback in `load_osm.load_model`; exit code 3 when no model loads; dry-run gate requires at least one output record, not just rc=0 |
+| 2 | A100 80 GB | dry run produced no records, container held for inspection | `task_e4_behav` called `evaluate_osm_model` with the wrong signature, crashing before any patching task ran | signature corrected; `TIST/check_signatures.py` verifies every production call site without needing torch; tasks isolated in try/except; patching ordered before the behavioural pass |
+| 3 | RTX 4090 | closed deliberately | 24 GB is too tight for Llama-3.1-8B under TransformerLens, which holds a converted model beside the HF weights | 40 GB VRAM floor in `deploy_tist.py`, refusing under-spec cards passed through `--gpus` |
+| 4 | A100 80 GB | closed deliberately after 40 min | `push_results` ran `git pull --rebase` with output discarded; one conflict left the repo mid-rebase and wedged every later checkpoint invisibly, including the final COMPLETE push | rebase aborted before and after each attempt, push retried three times, outcome reported; standalone `TIST/sync_results.sh` daemon |
+
+Two performance faults were found alongside them. The pinned torch 2.5.1 did not survive
+dependency resolution and the container runs torch 2.13.0+cu130, so the hard-coded
+flash-attn wheel could not install; the wheel URL is now derived from the torch that
+actually installed and the run proceeds on sdpa when none matches. The CUDA image ships
+without Python headers, so Triton could not compile and batched generation silently fell
+back to single-prompt decoding; `python3-dev` is now installed.
+
+Scheduling was also wrong. Models were dispatched largest-VRAM-first, which put
+Phi-4-mini last. Phi decodes at 4.54 s/prompt against Llama's 0.99, so it is the longest
+job at about 12 h against 4.8 h despite being the smallest model, and starting it last set
+the finish time. Dispatch is now longest-job-first.
+
+**Reproducibility note for the manuscript.** The battery runs on torch 2.13.0+cu130 with
+sdpa attention, while the original CDVA results were produced on torch 2.5.1+cu124. The E1
+comparisons are internally consistent, since every condition runs on the same stack, but
+E1.4 and E4 are compared against stored English values and that comparison needs the
+cross-stack consistency check listed under Next.
 
 ## Three defects found in the existing pipeline
 
