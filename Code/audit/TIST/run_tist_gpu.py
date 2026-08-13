@@ -549,12 +549,29 @@ def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
             log.warning("%s absent; skipping %s behavioural", src.name, lang)
             continue
         pen = pd.read_parquet(src)
+        expected = len(pen)
         if limit:
             pen = pen.head(limit)
         out_path = OUT / "e4" / f"behav_{lang}_{model_cfg['name']}.parquet"
+
+        # Resume on completeness, not on existence. A dry run writes a two-row parquet to
+        # this exact path, and those files reached the repository, so a fresh clone that
+        # skipped on existence alone would present two rows as the full multilingual
+        # behavioural result. Anything short of the expected prompt count is recomputed.
         if out_path.exists():
-            log.info("%s exists, skipping", out_path.name)
-            continue
+            try:
+                have = len(pd.read_parquet(out_path))
+            except Exception:  # noqa: BLE001
+                have = -1
+            if not limit and have < expected:
+                log.warning(
+                    "%s holds %d rows, expected %d; recomputing rather than trusting it",
+                    out_path.name, have, expected,
+                )
+                out_path.unlink()
+            else:
+                log.info("%s complete (%d rows), skipping", out_path.name, have)
+                continue
         log.info("%s behavioural %s: %d prompts", model_cfg["name"], lang, len(pen))
         df = evaluate_osm_model(
             model_cfg, model, tokenizer, pen, run_id=str(uuid.uuid4()), sample_index=0
