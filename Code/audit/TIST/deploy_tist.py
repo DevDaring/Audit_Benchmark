@@ -14,9 +14,14 @@ reuses its functions and overrides four module globals:
                module expects. The two keys are different accounts; the TIST run uses
                the Bharat one on Koushik's instruction.
 
-GPU preference defaults to 24 GB consumer and workstation cards. Every audited model is
-8B or smaller in bfloat16 and they are loaded one at a time, so 24 GB is sufficient and
-several times cheaper per hour than an H100.
+GPU preference is restricted to cards with 40 GB or more, ordered cheapest-first.
+
+24 GB cards are excluded deliberately. The models are 8B or smaller in bfloat16, so the
+weights fit, but TransformerLens holds a converted HookedTransformer alongside the loaded
+HF model and caches the residual stream at every layer during patching. Llama-3.1-8B on a
+24 GB card is close enough to the limit that an out-of-memory failure part-way through a
+paid run is a real possibility, and the original CDVA results were produced on an A100
+40 GB. Paying more per hour is cheaper than losing a model's results to an OOM.
 
 Usage:
   python TIST/deploy_tist.py --deposit 20 --wait 180
@@ -41,8 +46,15 @@ da.ENV = AUDIT / ".env"
 da.TEMPLATE = HERE / "sdl_tist.yaml"
 da.STATE = HERE / ".deploy_state.json"
 
-# 24 GB tier first, then larger cards as fallback if no provider bids.
-DEFAULT_GPUS = "rtx4090,l40s,l40,a6000,a40,a100,h100"
+# 40 GB and above only, cheapest tier first. No 24 GB card appears here on purpose.
+DEFAULT_GPUS = "a6000,a40,l40s,a100,h100,h200"
+
+# Guard against a 24 GB card slipping back in through --gpus.
+_MIN_VRAM_GB = 40
+_VRAM_GB = {
+    "rtx4090": 24, "rtx4080": 16, "rtx3090": 24, "l4": 24, "a10": 24, "a10g": 24,
+    "l40": 48, "l40s": 48, "a6000": 48, "a40": 48, "a100": 40, "h100": 80, "h200": 141,
+}
 
 
 def load_env() -> dict:
@@ -74,7 +86,18 @@ def main() -> None:
         da.close(env)
         return
 
-    for gpu in [g.strip() for g in args.gpus.split(",") if g.strip()]:
+    requested = [g.strip() for g in args.gpus.split(",") if g.strip()]
+    too_small = [g for g in requested if _VRAM_GB.get(g, _MIN_VRAM_GB) < _MIN_VRAM_GB]
+    if too_small:
+        print(
+            f"refusing {', '.join(too_small)}: under the {_MIN_VRAM_GB} GB floor. "
+            "TransformerLens holds a converted model alongside the HF weights and caches "
+            "the residual stream at every layer, so Llama-3.1-8B risks an out-of-memory "
+            "failure part-way through a paid run."
+        )
+        sys.exit(2)
+
+    for gpu in requested:
         state = da.provision(env, gpu, args.deposit, args.max_price, args.wait)
         if state:
             print(json.dumps(state, indent=2))
