@@ -247,10 +247,27 @@ class Patcher:
         if char_idx < 0:
             return None
 
+        # return_offsets_mapping is a fast-tokeniser feature. A slow tokeniser raises, and
+        # an earlier version swallowed that exception and returned None, so the fallback
+        # could never fire and said nothing about why. Qwen located 0 of 3,672 Hindi pairs
+        # and the cause was invisible in the logs. Report it once per patcher instead.
+        if not getattr(self.tokenizer, "is_fast", False):
+            if not getattr(self, "_warned_slow_tok", False):
+                logger.error(
+                    "tokenizer for this model is not a fast tokenizer, so offset mapping "
+                    "is unavailable and multi-token protected terms cannot be located. "
+                    "Multilingual coverage will be zero for this model until it is loaded "
+                    "with use_fast=True."
+                )
+                self._warned_slow_tok = True
+            return None
         try:
             enc = self.tokenizer(prompt, return_offsets_mapping=True, add_special_tokens=True)
             offsets = enc["offset_mapping"]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            if not getattr(self, "_warned_offset_fail", False):
+                logger.error("offset-mapping fallback unavailable: %s", str(exc)[:200])
+                self._warned_offset_fail = True
             return None
 
         # The last token overlapping the target span. Taking the final token matches the
