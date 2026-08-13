@@ -1,0 +1,19 @@
+2026-08-13 08:40:08,814 INFO pentad: 6855 prompts, 596 seeds
+2026-08-13 08:40:08,814 INFO === llama-3.1-8b-instruct ===
+2026-08-13 08:40:10,570 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
+2026-08-13 08:40:12,042 WARNING flash_attention_2 unavailable for llama-3.1-8b-instruct (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:01<00:03,  1.28s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:02<00:01,  1.04it/s]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:02<00:00,  1.18it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.41it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:03<00:00,  1.24it/s]
+2026-08-13 08:40:15,442 INFO   Model llama-3.1-8b-instruct               | attention impl: sdpa
+2026-08-13 08:40:15,442 WARNING   WARNING: llama-3.1-8b-instruct did not load with flash_attention_2 (got 'sdpa').
+2026-08-13 08:40:15,442 INFO Model 'llama-3.1-8b-instruct' loaded successfully.
+2026-08-13 08:40:15,967 INFO Converting HF model 'meta-llama/Llama-3.1-8B-Instruct' to HookedTransformer for CDVA patching ...
+2026-08-13 08:41:06,683 INFO HookedTransformer for 'meta-llama/Llama-3.1-8B-Instruct' cached (device=cuda:0).
+2026-08-13 08:41:06,683 INFO llama-3.1-8b-instruct: 32 layers via transformer_lens
+2026-08-13 08:42:18,158 INFO llama-3.1-8b-instruct battery: 200 units, 2.80 units/s
+2026-08-13 08:43:28,981 INFO llama-3.1-8b-instruct battery: 400 units, 2.81 units/s
+2026-08-13 08:45:11,267 INFO llama-3.1-8b-instruct battery: 600 units, 2.45 units/s
+2026-08-13 08:47:00,926 INFO llama-3.1-8b-instruct battery: 800 units, 2.26 units/s
+2026-08-13 08:48:47,883 INFO llama-3.1-8b-instruct battery: 1000 units, 2.17 units/s
+2026-08-13 08:50:33,794 INFO llama-3.1-8b-instruct battery: 1200 units, 2.12 units/s
+2026-08-13 08:52:20,013 INFO llama-3.1-8b-instruct battery: 1400 units, 2.08 units/s
+2026-08-13 08:54:05,658 INFO llama-3.1-8b-instruct battery: 1600 units, 2.05 units/s
