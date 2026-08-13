@@ -530,13 +530,18 @@ def main() -> None:
     pentad = _pentad(clean=True)
     log.info("pentad: %d prompts, %d seeds", len(pentad), pentad["seed_id"].nunique())
 
+    n_loaded = 0
+    failures: list[str] = []
+
     for cfg in models:
         name = cfg["name"]
         log.info("=== %s ===", name)
         try:
             model, tokenizer = load_model(cfg)
+            n_loaded += 1
         except Exception as exc:  # noqa: BLE001
             log.error("load failed for %s: %s", name, str(exc)[:300])
+            failures.append(f"{name}: {str(exc)[:200]}")
             continue
 
         try:
@@ -560,7 +565,21 @@ def main() -> None:
         finally:
             unload_model(name)
 
-    log.info("all requested tasks complete")
+    # A run that loaded no model did no work. Exiting zero there let the lease report
+    # COMPLETE after producing nothing, which is worse than crashing: the supervisor
+    # stopped retrying and the GPU sat billing. Fail loudly instead, so the bootstrap
+    # loop pulls any fix and tries again.
+    if n_loaded == 0:
+        log.error("no model loaded; nothing was computed")
+        for f in failures:
+            log.error("  %s", f)
+        sys.exit(3)
+    if failures:
+        log.warning("%d of %d models failed to load", len(failures), len(models))
+        for f in failures:
+            log.warning("  %s", f)
+
+    log.info("all requested tasks complete (%d of %d models)", n_loaded, len(models))
 
 
 if __name__ == "__main__":

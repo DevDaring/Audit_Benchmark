@@ -90,13 +90,22 @@ $PIP scikit-learn hf_transfer
 echo "[tist] transformer_lens 2.18.0 (--no-deps: keeps torch 2.5.1 / transformers 4.50.3)"
 $PIP --no-deps transformer_lens==2.18.0
 
-echo "[tist] precompiled flash-attention (cu12 / torch2.5 / cp312)"
-FA_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.5cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"
-if wget -q "$FA_URL" -O /tmp/fa.whl && $PIP --no-deps /tmp/fa.whl; then
-  echo "[tist] flash-attn installed"
-else
-  echo "[tist] WARN flash-attn wheel failed; transformers will use sdpa (slower, same numerics)"
-fi
+echo "[tist] precompiled flash-attention, matched to the torch that actually installed"
+# The pin above is advisory: a dependency in requirements_gpu.txt can pull a newer torch,
+# and the first TIST lease ended up on 2.13.0+cu130 despite asking for 2.5.1+cu124. A
+# wheel built for a different torch will not import, so the URL is derived from the
+# installed version rather than hard-coded. If no wheel matches, the run proceeds on sdpa.
+TORCH_MM=$(python3 -c "import torch;print('.'.join(torch.__version__.split('+')[0].split('.')[:2]))" 2>/dev/null || echo "")
+CU_TAG=$(python3 -c "import torch;v=torch.version.cuda or '12.4';print('cu'+v.split('.')[0]+'x' if False else 'cu'+v.split('.')[0])" 2>/dev/null || echo "cu12")
+echo "[tist] installed torch major.minor=$TORCH_MM cuda_tag=$CU_TAG"
+FA_OK=0
+for FA_V in 2.8.3 2.7.4.post1 2.6.3; do
+  FA_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v${FA_V}/flash_attn-${FA_V}+${CU_TAG}torch${TORCH_MM}cxx11abiFALSE-cp312-cp312-linux_x86_64.whl"
+  if wget -q "$FA_URL" -O /tmp/fa.whl 2>/dev/null && $PIP --no-deps /tmp/fa.whl 2>/dev/null; then
+    echo "[tist] flash-attn $FA_V installed"; FA_OK=1; break
+  fi
+done
+[ "$FA_OK" -eq 1 ] || echo "[tist] WARN no matching flash-attn wheel; running on sdpa (same numerics, slower)"
 
 mkdir -p "$TIST/logs"
 echo "[tist] verify stack"
@@ -137,13 +146,47 @@ PY
 
 push_results "setup complete; starting dry run"
 
+echo "[tist] record the stack actually installed (reproducibility statement)"
+mkdir -p "$AUDIT/results/tist"
+python3 - > "$AUDIT/results/tist/environment.json" <<'PY'
+import json, platform
+import importlib.metadata as m
+def v(p):
+    try:
+        return m.version(p)
+    except Exception:
+        return None
+import torch
+print(json.dumps({
+    "python": platform.python_version(),
+    "torch": torch.__version__,
+    "torch_cuda": torch.version.cuda,
+    "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    "transformers": v("transformers"),
+    "transformer_lens": v("transformer_lens"),
+    "nnsight": v("nnsight"),
+    "flash_attn": v("flash_attn"),
+    "accelerate": v("accelerate"),
+    "numpy": v("numpy"),
+    "attention_note": "flash_attn null means the run used sdpa; equivalent numerics, slower",
+}, indent=2))
+PY
+cat "$AUDIT/results/tist/environment.json"
+
 echo "[tist] DRY RUN (2 units per task, real code path)"
 cd "$AUDIT"
 python3 TIST/run_tist_gpu.py --tasks all --dry > "$TIST/logs/dryrun.log" 2>&1; DRY_RC=$?
 tail -60 "$TIST/logs/dryrun.log"
-push_results "dry run rc=$DRY_RC"
-if [ "$DRY_RC" -ne 0 ]; then
-  echo "[tist] DRY FAILED; container kept alive for inspection"
+
+# The exit code alone is not a gate. The first lease exited zero from a dry run in which
+# every model failed to load and nothing was computed, so the supervisor declared COMPLETE
+# and the GPU idled at cost. Require actual output before proceeding.
+DRY_UNITS=$(cat "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl 2>/dev/null | wc -l)
+echo "[tist] dry run rc=$DRY_RC, records produced=$DRY_UNITS"
+push_results "dry run rc=$DRY_RC records=$DRY_UNITS"
+if [ "$DRY_RC" -ne 0 ] || [ "$DRY_UNITS" -lt 1 ]; then
+  echo "[tist] DRY FAILED (rc=$DRY_RC records=$DRY_UNITS); container kept alive for inspection"
+  push_results "FATAL dry run produced no records"
   sleep infinity
 fi
 
