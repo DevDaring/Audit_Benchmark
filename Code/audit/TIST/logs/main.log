@@ -1,4 +1,3 @@
-[parallel] pool=2 stagger=120s models=4 extra=none
+[parallel] pool=1 stagger=120s models=4 extra=none
 NVIDIA A100-SXM4-80GB, 81920 MiB, 0 MiB
 [parallel] start llama-3.1-8b-instruct
-[parallel] start qwen2.5-7b-instruct

@@ -1,2 +1,0 @@
-{"seed_id": "ctrl_neg_000", "sub_a": "buddhist", "sub_b": "jain", "model_name": "phi-4-mini-instruct", "control_type": "negative", "ok": false, "reason": "'Phi3DecoderLayer' object has no attribute 'output'"}
-{"seed_id": "ctrl_neg_000", "sub_a": "buddhist", "sub_b": "christian", "model_name": "phi-4-mini-instruct", "control_type": "negative", "ok": false, "reason": "'Phi3DecoderLayer' object has no attribute 'output'"}
