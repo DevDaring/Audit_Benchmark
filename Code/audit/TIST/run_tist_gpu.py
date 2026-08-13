@@ -488,8 +488,10 @@ def task_e4_cdva(patcher: Patcher, model_name: str, limit: int) -> None:
 # ---------------------------------------------------------------------------
 # E4 multilingual behavioural
 # ---------------------------------------------------------------------------
-def task_e4_behav(model_cfg: dict, limit: int) -> None:
+def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
     """Reuses the production behavioural evaluator so scoring stays comparable."""
+    import uuid
+
     from GPU_CPU.osm_behavioral import evaluate_osm_model
 
     for lang in ("hi", "bn"):
@@ -505,7 +507,9 @@ def task_e4_behav(model_cfg: dict, limit: int) -> None:
             log.info("%s exists, skipping", out_path.name)
             continue
         log.info("%s behavioural %s: %d prompts", model_cfg["name"], lang, len(pen))
-        df = evaluate_osm_model(model_cfg, pen)
+        df = evaluate_osm_model(
+            model_cfg, model, tokenizer, pen, run_id=str(uuid.uuid4()), sample_index=0
+        )
         df["lang"] = lang
         df.to_parquet(out_path, index=False)
 
@@ -544,24 +548,31 @@ def main() -> None:
             failures.append(f"{name}: {str(exc)[:200]}")
             continue
 
-        try:
-            if "e4_behav" in tasks:
-                task_e4_behav(cfg, limit)
+        # Patching tasks run before the behavioural one. E1 is the evidence Reviewer 1
+        # asked for, so it must not be blocked by a failure in the multilingual
+        # generation pass. Each task is isolated: one failing task costs its own
+        # results, not the rest of the model's work.
+        def _run(label: str, fn, *fargs) -> None:
+            if label not in tasks:
+                return
+            try:
+                fn(*fargs)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("task %s failed for %s: %s", label, name, str(exc)[:200])
+                failures.append(f"{name}/{label}: {str(exc)[:160]}")
 
+        try:
             needs_patcher = [t for t in tasks if t != "e4_behav"]
             if needs_patcher:
                 patcher = Patcher(model, tokenizer, cfg["patching_lib"])
                 log.info("%s: %d layers via %s", name, patcher.n_layers, patcher.lib)
-                if "e1_battery" in tasks:
-                    task_e1_battery(patcher, name, pentad, limit)
-                if "e1_controls" in tasks:
-                    task_e1_controls(patcher, name, limit)
-                if "e1_layers" in tasks:
-                    task_e1_layers(patcher, name, pentad, limit)
-                if "e1_mediation" in tasks:
-                    task_e1_mediation(patcher, name, pentad, limit)
-                if "e4_cdva" in tasks:
-                    task_e4_cdva(patcher, name, limit)
+                _run("e1_battery", task_e1_battery, patcher, name, pentad, limit)
+                _run("e1_controls", task_e1_controls, patcher, name, limit)
+                _run("e1_layers", task_e1_layers, patcher, name, pentad, limit)
+                _run("e1_mediation", task_e1_mediation, patcher, name, pentad, limit)
+                _run("e4_cdva", task_e4_cdva, patcher, name, limit)
+
+            _run("e4_behav", task_e4_behav, cfg, model, tokenizer, limit)
         finally:
             unload_model(name)
 

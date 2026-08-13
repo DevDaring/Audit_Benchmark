@@ -181,14 +181,42 @@ tail -60 "$TIST/logs/dryrun.log"
 # The exit code alone is not a gate. The first lease exited zero from a dry run in which
 # every model failed to load and nothing was computed, so the supervisor declared COMPLETE
 # and the GPU idled at cost. Require actual output before proceeding.
-DRY_UNITS=$(cat "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl 2>/dev/null | wc -l)
-echo "[tist] dry run rc=$DRY_RC, records produced=$DRY_UNITS"
-push_results "dry run rc=$DRY_RC records=$DRY_UNITS"
-if [ "$DRY_RC" -ne 0 ] || [ "$DRY_UNITS" -lt 1 ]; then
-  echo "[tist] DRY FAILED (rc=$DRY_RC records=$DRY_UNITS); container kept alive for inspection"
-  push_results "FATAL dry run produced no records"
-  sleep infinity
-fi
+pull_fix() {
+  # Bring in any fix pushed since the lease started. Results are force-added, so they
+  # are stashed across the rebase to avoid a conflict with the runner's own pushes.
+  git -C "$REPO" stash -q --include-untracked >/dev/null 2>&1 || true
+  git -C "$REPO" pull --rebase -q origin main >/dev/null 2>&1 || true
+  git -C "$REPO" stash pop -q >/dev/null 2>&1 || true
+}
+
+dry_units() {
+  cat "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl 2>/dev/null | wc -l
+}
+
+# Retry the dry run rather than parking on failure. The first two leases each died on a
+# fault that a one-line push fixed; sleeping forever meant paying for an idle GPU and
+# reprovisioning from scratch, roughly 25 minutes of setup each time. Pulling and
+# retrying lets a pushed fix reach the live lease.
+DRY_TRY=0
+while true; do
+  DRY_TRY=$((DRY_TRY+1))
+  DRY_UNITS=$(dry_units)
+  echo "[tist] dry attempt $DRY_TRY: rc=$DRY_RC records=$DRY_UNITS"
+  push_results "dry attempt $DRY_TRY rc=$DRY_RC records=$DRY_UNITS"
+  if [ "$DRY_RC" -eq 0 ] && [ "$DRY_UNITS" -ge 1 ]; then
+    break
+  fi
+  if [ "$DRY_TRY" -ge 40 ]; then
+    echo "[tist] dry run still failing after $DRY_TRY attempts; parking for inspection"
+    push_results "FATAL dry run failing after $DRY_TRY attempts"
+    sleep infinity
+  fi
+  echo "[tist] dry failed; pulling any fix and retrying in 120s"
+  sleep 120
+  pull_fix
+  python3 TIST/run_tist_gpu.py --tasks all --dry > "$TIST/logs/dryrun.log" 2>&1; DRY_RC=$?
+  tail -40 "$TIST/logs/dryrun.log"
+done
 
 echo "[tist] dry passed; clearing dry-run records so they never enter the real results"
 rm -f "$AUDIT"/results/tist/e1/*.jsonl "$AUDIT"/results/tist/e4/*.jsonl
