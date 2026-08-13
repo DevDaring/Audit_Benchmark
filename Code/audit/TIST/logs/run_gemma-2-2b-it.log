@@ -1,9 +1,14 @@
-2026-08-13 08:19:47,898 INFO pentad: 6855 prompts, 596 seeds
-2026-08-13 08:19:47,898 INFO === gemma-2-2b-it ===
-2026-08-13 08:19:49,411 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
-2026-08-13 08:19:51,395 WARNING flash_attention_2 unavailable for gemma-2-2b-it (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.31s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.46it/s]
-2026-08-13 08:19:52,947 INFO   Model gemma-2-2b-it                       | attention impl: sdpa
-2026-08-13 08:19:52,948 WARNING   WARNING: gemma-2-2b-it did not load with flash_attention_2 (got 'sdpa').
-2026-08-13 08:19:52,948 INFO Model 'gemma-2-2b-it' loaded successfully.
-2026-08-13 08:19:53,480 INFO Converting HF model 'google/gemma-2-2b-it' to HookedTransformer for CDVA patching ...
+2026-08-13 14:13:54,809 INFO watchdog armed: exits after 25 min with no records and no log activity
+2026-08-13 14:13:54,847 INFO pentad: 6855 prompts, 596 seeds
+2026-08-13 14:13:54,847 INFO === gemma-2-2b-it ===
+2026-08-13 14:13:56,394 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
+2026-08-13 14:13:58,074 WARNING flash_attention_2 unavailable for gemma-2-2b-it (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.35s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.44it/s]
+2026-08-13 14:13:59,645 INFO   Model gemma-2-2b-it                       | attention impl: sdpa
+2026-08-13 14:13:59,645 WARNING   WARNING: gemma-2-2b-it did not load with flash_attention_2 (got 'sdpa').
+2026-08-13 14:13:59,645 INFO Model 'gemma-2-2b-it' loaded successfully.
+2026-08-13 14:14:00,134 INFO Converting HF model 'google/gemma-2-2b-it' to HookedTransformer for CDVA patching ...
+2026-08-13 14:14:37,872 INFO HookedTransformer for 'google/gemma-2-2b-it' cached (device=cuda:0).
+2026-08-13 14:14:37,872 INFO gemma-2-2b-it: 26 layers via transformer_lens
+2026-08-13 14:16:25,466 INFO gemma-2-2b-it battery: 200 units, 1.86 units/s
+2026-08-13 14:18:11,560 INFO gemma-2-2b-it battery: 400 units, 1.87 units/s
