@@ -39,7 +39,6 @@ from GPU_CPU.utils_attention import (
     _ensure_hooked_transformer,
     _ensure_nnsight_model,
     _get_token_position,
-    _nnsight_layer_proxies,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,28 +93,55 @@ def _final_logits_tl(tl_model: Any, prompt: str, patch: dict | None) -> "np.ndar
     return logits[0, -1, :].float().cpu().numpy()
 
 
+def _nnsight_shape(hf_model: Any) -> tuple[int, bool]:
+    """
+    Layer count from the real HF model, plus whether layers sit under `.model`.
+
+    Read from the HF module, never from an nnsight proxy. Proxies only behave as proxies
+    inside a trace; outside one they resolve to plain nn.Modules.
+    """
+    inner = getattr(hf_model, "model", None)
+    if inner is not None and hasattr(inner, "layers"):
+        return len(inner.layers), True            # Qwen2ForCausalLM, Phi3ForCausalLM
+    if hasattr(hf_model, "layers"):
+        return len(hf_model.layers), False
+    raise AttributeError(
+        f"cannot determine n_layers for {type(hf_model).__name__}; expected .model.layers or .layers"
+    )
+
+
 def _resid_cache_nnsight(nn_model: Any, hf_model: Any, prompt: str) -> dict[int, Any]:
-    layers_proxy, _ = _nnsight_layer_proxies(nn_model, hf_model)
-    saved = {}
+    """
+    Residual stream at every layer, all positions, as concrete tensors.
+
+    The layer proxies are resolved INSIDE the trace through the nnsight proxy chain. An
+    earlier version fetched them outside it, which is the mistake GPU_CPU/utils_attention
+    documents in its own docstring: a raw HF module has no `.output`, so every call raised
+    "'Qwen2DecoderLayer' object has no attribute 'output'". That cost a full run on both
+    NNsight models, 9,566 rows each, all failed.
+    """
+    n_layers, shape_b = _nnsight_shape(hf_model)
+    saved: dict[int, Any] = {}
     with nn_model.trace(prompt):
-        for i in range(len(layers_proxy)):
-            out = layers_proxy[i].output
-            saved[i] = (out[0] if isinstance(out, tuple) else out).save()
-    return {i: v.value[0].clone() for i, v in saved.items()}
+        for i in range(n_layers):
+            layer = nn_model.model.layers[i] if shape_b else nn_model.layers[i]
+            saved[i] = layer.output[0][0].save()   # [seq, d_model], all positions
+    return {i: v.value.clone() for i, v in saved.items()}
 
 
 def _final_logits_nnsight(nn_model: Any, hf_model: Any, prompt: str, patch: dict | None) -> "np.ndarray":
-    layers_proxy, lm_head = _nnsight_layer_proxies(nn_model, hf_model)
+    """Final-position logits, optionally patching `acts` at `tgt_pos` on chosen layers."""
+    n_layers, shape_b = _nnsight_shape(hf_model)
     with nn_model.trace(prompt):
         if patch is not None:
             tgt = patch["tgt_pos"]
-            for layer, vec in patch["acts"].items():
-                out = layers_proxy[layer].output
-                hidden = out[0] if isinstance(out, tuple) else out
-                hidden[0, tgt, :] = vec
-        logits = lm_head.output.save()
-    arr = logits.value
-    return arr[0, -1, :].float().cpu().numpy()
+            for layer_idx, vec in patch["acts"].items():
+                if layer_idx >= n_layers:
+                    continue
+                layer = nn_model.model.layers[layer_idx] if shape_b else nn_model.layers[layer_idx]
+                layer.output[0][:, tgt, :] = vec
+        logits = nn_model.lm_head.output.save()
+    return logits.value[0, -1, :].float().cpu().numpy()
 
 
 class Patcher:
@@ -146,8 +172,9 @@ class Patcher:
         if self.lib == "nnsight":
             self.hf_model = model
             self.model = _ensure_nnsight_model(model, tokenizer)
-            layers_proxy, _ = _nnsight_layer_proxies(self.model, model)
-            self.n_layers = len(layers_proxy)
+            # Layer count comes from the HF module, not from a proxy fetched outside a
+            # trace; the latter resolves to a plain nn.Module and breaks silently.
+            self.n_layers, _ = _nnsight_shape(model)
         else:
             self.model = _ensure_hooked_transformer(model, tokenizer)
             self.n_layers = self.model.cfg.n_layers

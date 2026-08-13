@@ -837,6 +837,42 @@ def main() -> None:
         for f in failures:
             log.error("  %s", f)
         sys.exit(3)
+
+    # A model that loaded but produced no valid rows is a failed run, not a partial one.
+    #
+    # The previous version exited 0 whenever any model succeeded. Qwen and Phi wrote 9,566
+    # rows each in which EVERY row was an error, the whole NNsight path being broken, and
+    # because Llama and Gemma were fine the run reported COMPLETE, the lease auto-closed,
+    # and the record count climbed to 103,144 looking like progress. Half the study was
+    # missing and nothing said so.
+    empty_models = []
+    for cfg in models:
+        name = cfg["name"]
+        n_ok = 0
+        for sub in ("e1", "e4"):
+            for f in (OUT / sub).glob(f"*{name}*.jsonl"):
+                try:
+                    with f.open(encoding="utf-8") as fh:
+                        for line in fh:
+                            if '"ok": true' in line or '"ok":true' in line:
+                                n_ok += 1
+                                break
+                except OSError:
+                    pass
+                if n_ok:
+                    break
+            if n_ok:
+                break
+        if n_ok == 0:
+            empty_models.append(name)
+
+    if empty_models:
+        log.error(
+            "MODELS WITH NO VALID ROWS: %s. Every unit failed for these, so the run is "
+            "incomplete regardless of the other models. Exiting 5 rather than reporting "
+            "success.", ", ".join(empty_models),
+        )
+        sys.exit(5)
     if failures:
         log.warning("%d of %d models failed to load", len(failures), len(models))
         for f in failures:
