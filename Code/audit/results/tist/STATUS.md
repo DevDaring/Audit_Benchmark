@@ -108,6 +108,35 @@ The lease bills continuously. Close it as soon as `TIST_GPU_DONE` appears; the e
 about 40 GPU-hours of work plus setup, so budget roughly two days of wall clock and check
 in at least twice a day.
 
+## Measured throughput, for the deployability table
+
+TIST asks for runtime and cost figures, so these are measured rather than estimated. All
+from lease 5, one A100 80 GB, sequential, sdpa attention, per-seed memoisation enabled.
+
+| Sync checkpoint (UTC) | Records | Interval rate |
+|---|---|---|
+| 10:03:16 | 2,315 | |
+| 10:18:18 | 4,761 | 163 / min |
+| 10:33:20 | 7,249 | 165 / min |
+
+Stable at roughly **164 records per minute**, where a record is one unit of audit work:
+a counterfactual pair for the battery and the controls, a layer window for the sweep, a
+pair for the multilingual CDVA.
+
+Total work is about 121,400 units across the four models, so the patching battery costs
+roughly **12 GPU-hours** and the multilingual behavioural pass a further **4**, about
+**16 GPU-hours** for the whole audit, near $60 at the A100 rate this lease pays.
+
+Two caveats the manuscript must carry. The run uses sdpa rather than flash-attention,
+because the pinned torch did not survive dependency resolution in the container and no
+matching wheel exists for the version that installed; numerics are unaffected but the
+figures are conservative. And the throughput is single-process: this provider allocates
+the GPU as one indivisible unit and kills a second process attaching to it, so the
+figures describe one model at a time rather than a saturated card.
+
+An earlier measurement of 1,527 records per minute is not comparable and must not be
+quoted: it came from a two-process configuration that this provider terminates.
+
 ## Estimated GPU cost
 
 About 52 GPU-hours, derived from measured per-pair patching cost of 0.17 to 0.58 s and
