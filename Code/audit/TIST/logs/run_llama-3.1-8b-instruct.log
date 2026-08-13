@@ -56,3 +56,23 @@
 2026-08-13 10:43:39,104 INFO llama-3.1-8b-instruct battery: 9000 units, 2.75 units/s
 2026-08-13 10:44:49,693 INFO llama-3.1-8b-instruct battery: 9200 units, 2.75 units/s
 2026-08-13 10:46:00,048 INFO llama-3.1-8b-instruct battery: 9400 units, 2.76 units/s
+2026-08-13 10:53:33,954 INFO llama-3.1-8b-instruct controls: 4000 units
+2026-08-13 10:54:06,592 INFO llama-3.1-8b-instruct layer sweep: 400 window-units
+2026-08-13 10:54:37,288 INFO llama-3.1-8b-instruct layer sweep: 800 window-units
+2026-08-13 10:55:07,541 INFO llama-3.1-8b-instruct layer sweep: 1200 window-units
+2026-08-13 10:55:38,515 INFO llama-3.1-8b-instruct layer sweep: 1600 window-units
+2026-08-13 10:56:09,373 INFO llama-3.1-8b-instruct layer sweep: 2000 window-units
+2026-08-13 10:56:40,529 INFO llama-3.1-8b-instruct layer sweep: 2400 window-units
+2026-08-13 10:57:11,632 INFO llama-3.1-8b-instruct layer sweep: 2800 window-units
+2026-08-13 10:57:41,611 INFO llama-3.1-8b-instruct layer sweep: 3200 window-units
+2026-08-13 10:58:13,374 INFO llama-3.1-8b-instruct layer sweep: 3600 window-units
+2026-08-13 10:58:44,910 INFO llama-3.1-8b-instruct layer sweep: 4000 window-units
+2026-08-13 10:59:16,859 INFO llama-3.1-8b-instruct layer sweep: 4400 window-units
+2026-08-13 10:59:48,430 INFO llama-3.1-8b-instruct layer sweep: 4800 window-units
+2026-08-13 11:00:19,156 INFO llama-3.1-8b-instruct layer sweep: 5200 window-units
+2026-08-13 11:00:49,912 INFO llama-3.1-8b-instruct layer sweep: 5600 window-units
+2026-08-13 11:01:21,387 INFO llama-3.1-8b-instruct layer sweep: 6000 window-units
+2026-08-13 11:01:52,491 INFO llama-3.1-8b-instruct layer sweep: 6400 window-units
+2026-08-13 11:02:23,431 INFO llama-3.1-8b-instruct layer sweep: 6800 window-units
+2026-08-13 11:02:54,888 INFO llama-3.1-8b-instruct layer sweep: 7200 window-units
+2026-08-13 11:03:25,640 INFO llama-3.1-8b-instruct layer sweep: 7600 window-units
