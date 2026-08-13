@@ -656,10 +656,13 @@ def main() -> None:
     limit = 2 if args.dry else 0
 
     # Fan out over models unless this process is already a single-model worker.
-    # Three concurrent on an 80 GB card: phi 9 GB + qwen 16 GB + llama 32 GB is about
-    # 57 GB resident, leaving room for activations and for the transient spike while
-    # TransformerLens converts a model. Override with --parallel.
-    pool = args.parallel if args.parallel is not None else (3 if len(models) > 1 else 1)
+    # Two concurrent, not three. VRAM was never the binding constraint: three models fit
+    # in 80 GB. System RAM is. The SDL requests 48 Gi, TransformerLens stages weights
+    # through CPU memory while converting, and a three-way launch took SIGTERM from the
+    # container with no Python traceback, which is what a cgroup memory kill looks like.
+    # Two costs roughly 1.7 h of wall clock against three and does not risk the run.
+    # Raise it only alongside a larger `memory:` request in sdl_tist.yaml.
+    pool = args.parallel if args.parallel is not None else (2 if len(models) > 1 else 1)
     if pool > 1 and len(models) > 1:
         log.info("dispatching %d models, %d concurrent", len(models), pool)
         sys.exit(_dispatch_parallel(tasks, models, pool, args.dry, args.stagger))

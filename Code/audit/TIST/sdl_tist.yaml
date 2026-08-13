@@ -42,8 +42,13 @@ profiles:
       resources:
         cpu:
           units: 8
+        # 128 Gi, not 48. Concurrent model loads stage weights through system RAM,
+        # TransformerLens especially, and a three-way launch on a 48 Gi container took
+        # SIGTERM with no Python traceback, which is a cgroup memory kill. VRAM was never
+        # the constraint. RAM is cheap next to the GPU on Akash pricing, so this is
+        # oversized on purpose.
         memory:
-          size: 48Gi
+          size: 128Gi
         storage:
           - size: 200Gi
         gpu:
