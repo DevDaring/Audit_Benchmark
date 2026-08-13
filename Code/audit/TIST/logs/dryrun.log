@@ -1,14 +1,19 @@
-2026-08-13 05:21:35,997 INFO pentad: 6855 prompts, 596 seeds
-2026-08-13 05:21:35,998 INFO === llama-3.1-8b-instruct ===
-2026-08-13 05:21:39,137 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
-2026-08-13 05:21:42,518 ERROR load failed for llama-3.1-8b-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
-2026-08-13 05:21:42,563 INFO === qwen2.5-7b-instruct ===
-2026-08-13 05:21:42,564 INFO Loading model: qwen2.5-7b-instruct (Qwen/Qwen2.5-7B-Instruct) ...
-2026-08-13 05:21:43,997 ERROR load failed for qwen2.5-7b-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
-2026-08-13 05:21:44,061 INFO === gemma-2-2b-it ===
-2026-08-13 05:21:44,061 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
-2026-08-13 05:21:46,126 ERROR load failed for gemma-2-2b-it: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
-2026-08-13 05:21:46,258 INFO === phi-4-mini-instruct ===
-2026-08-13 05:21:46,258 INFO Loading model: phi-4-mini-instruct (microsoft/Phi-4-mini-instruct) ...
-2026-08-13 05:21:48,084 ERROR load failed for phi-4-mini-instruct: FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the documentation of https://huggingface.co/docs/transformers/perf_infer_gpu_one#flashattention-2 to install Flash Attention 2.
-2026-08-13 05:21:48,167 INFO all requested tasks complete
+2026-08-13 05:46:13,719 INFO pentad: 6855 prompts, 596 seeds
+2026-08-13 05:46:13,720 INFO === llama-3.1-8b-instruct ===
+2026-08-13 05:46:15,535 INFO Loading model: llama-3.1-8b-instruct (meta-llama/Llama-3.1-8B-Instruct) ...
+2026-08-13 05:46:17,345 WARNING flash_attention_2 unavailable for llama-3.1-8b-instruct (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:  25%|██▌       | 1/4 [00:04<00:12,  4.30s/it]Loading checkpoint shards:  50%|█████     | 2/4 [00:07<00:07,  3.68s/it]Loading checkpoint shards:  75%|███████▌  | 3/4 [00:11<00:03,  3.75s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:12<00:00,  2.62s/it]Loading checkpoint shards: 100%|██████████| 4/4 [00:12<00:00,  3.07s/it]
+2026-08-13 05:46:29,788 INFO   Model llama-3.1-8b-instruct               | attention impl: sdpa
+2026-08-13 05:46:29,789 WARNING   WARNING: llama-3.1-8b-instruct did not load with flash_attention_2 (got 'sdpa').
+2026-08-13 05:46:29,789 INFO Model 'llama-3.1-8b-instruct' loaded successfully.
+2026-08-13 05:46:29,837 INFO llama-3.1-8b-instruct behavioural hi: 2 prompts
+2026-08-13 05:46:29,996 INFO Model 'llama-3.1-8b-instruct' unloaded and VRAM freed.
+Traceback (most recent call last):
+  File "/workspace/Audit_Benchmark/Code/audit/TIST/run_tist_gpu.py", line 586, in <module>
+    main()
+  File "/workspace/Audit_Benchmark/Code/audit/TIST/run_tist_gpu.py", line 549, in main
+    task_e4_behav(cfg, limit)
+  File "/workspace/Audit_Benchmark/Code/audit/TIST/run_tist_gpu.py", line 508, in task_e4_behav
+    df = evaluate_osm_model(model_cfg, pen)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: evaluate_osm_model() missing 3 required positional arguments: 'tokenizer', 'pentad_df', and 'run_id'

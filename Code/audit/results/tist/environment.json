@@ -1,0 +1,13 @@
+{
+  "python": "3.12.3",
+  "torch": "2.13.0+cu130",
+  "torch_cuda": "13.0",
+  "gpu": "NVIDIA A100-SXM4-80GB",
+  "transformers": "4.50.3",
+  "transformer_lens": "2.18.0",
+  "nnsight": "0.3.7",
+  "flash_attn": null,
+  "accelerate": "0.34.0",
+  "numpy": "1.26.4",
+  "attention_note": "flash_attn null means the run used sdpa; equivalent numerics, slower"
+}
