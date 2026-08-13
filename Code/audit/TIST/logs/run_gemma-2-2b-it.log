@@ -12,3 +12,11 @@
 2026-08-13 14:14:37,872 INFO gemma-2-2b-it: 26 layers via transformer_lens
 2026-08-13 14:16:25,466 INFO gemma-2-2b-it battery: 200 units, 1.86 units/s
 2026-08-13 14:18:11,560 INFO gemma-2-2b-it battery: 400 units, 1.87 units/s
+2026-08-13 14:19:57,785 INFO gemma-2-2b-it battery: 600 units, 1.88 units/s
+2026-08-13 14:21:44,058 INFO gemma-2-2b-it battery: 800 units, 1.88 units/s
+2026-08-13 14:23:27,907 INFO gemma-2-2b-it battery: 1000 units, 1.89 units/s
+2026-08-13 14:25:13,002 INFO gemma-2-2b-it battery: 1200 units, 1.89 units/s
+2026-08-13 14:27:01,826 INFO gemma-2-2b-it battery: 1400 units, 1.88 units/s
+2026-08-13 14:28:49,872 INFO gemma-2-2b-it battery: 1600 units, 1.88 units/s
+2026-08-13 14:30:37,475 INFO gemma-2-2b-it battery: 1800 units, 1.88 units/s
+2026-08-13 14:32:24,363 INFO gemma-2-2b-it battery: 2000 units, 1.88 units/s
