@@ -2,3 +2,5 @@
 {"seed_id": "bbq_074508ce", "sub_a": "dorothy", "sub_b": "man", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
 {"seed_id": "bbq_074508ce", "sub_a": "dorothy", "sub_b": "woman", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
 {"seed_id": "bbq_074508ce", "sub_a": "kenneth", "sub_b": "person", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
+{"seed_id": "bbq_074508ce", "sub_a": "man", "sub_b": "woman", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
+{"seed_id": "bbq_074508ce", "sub_a": "person", "sub_b": "kenneth", "model_name": "qwen2.5-7b-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
