@@ -42,3 +42,7 @@
 [sync 17:15:16] pushed 103144 records (attempt 1)
 [sync 02:20:05] nothing new (103196 records)
 [sync 02:35:07] pushed 105556 records (attempt 1)
+[sync 02:50:09] pushed 106748 records (attempt 1)
+[sync 03:05:09] no new records and no log activity (106748); skipping the commit
+[sync 03:20:09] no new records and no log activity (106748); skipping the commit
+[sync 03:35:09] no new records and no log activity (106748); skipping the commit

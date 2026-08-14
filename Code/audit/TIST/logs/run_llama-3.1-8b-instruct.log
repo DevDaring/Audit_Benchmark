@@ -46,3 +46,46 @@
 2026-08-14 02:48:08,437 INFO OSM llama-3.1-8b-instruct: 1304/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 02:48:48,909 INFO OSM llama-3.1-8b-instruct: 1400/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 02:49:38,973 INFO OSM llama-3.1-8b-instruct: 1504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:50:28,562 INFO OSM llama-3.1-8b-instruct: 1600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:51:15,339 INFO OSM llama-3.1-8b-instruct: 1704/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:52:01,458 INFO OSM llama-3.1-8b-instruct: 1800/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:52:50,390 INFO OSM llama-3.1-8b-instruct: 1904/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:53:34,989 INFO OSM llama-3.1-8b-instruct: 2000/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:54:23,661 INFO OSM llama-3.1-8b-instruct: 2104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:55:12,039 INFO OSM llama-3.1-8b-instruct: 2200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:56:01,232 INFO OSM llama-3.1-8b-instruct: 2304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:56:46,462 INFO OSM llama-3.1-8b-instruct: 2400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:57:29,942 INFO OSM llama-3.1-8b-instruct: 2504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:58:15,480 INFO OSM llama-3.1-8b-instruct: 2600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 02:58:39,623 INFO llama-3.1-8b-instruct behavioural bn: 2548 prompts
+/usr/local/lib/python3.12/dist-packages/transformers/generation/configuration_utils.py:633: UserWarning: `do_sample` is set to `False`. However, `top_p` is set to `0.9` -- this flag is only used in sample-based generation modes. You should set `do_sample=True` or unset `top_p`.
+  warnings.warn(
+2026-08-14 03:00:16,043 INFO OSM llama-3.1-8b-instruct: 104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:01:50,825 INFO OSM llama-3.1-8b-instruct: 200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:03:42,768 INFO OSM llama-3.1-8b-instruct: 304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:05:21,528 INFO OSM llama-3.1-8b-instruct: 400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:07:09,015 INFO OSM llama-3.1-8b-instruct: 504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:08:50,136 INFO OSM llama-3.1-8b-instruct: 600/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:10:33,812 INFO OSM llama-3.1-8b-instruct: 704/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:12:05,140 INFO OSM llama-3.1-8b-instruct: 800/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:13:58,055 INFO OSM llama-3.1-8b-instruct: 904/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:15:38,329 INFO OSM llama-3.1-8b-instruct: 1000/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:17:26,577 INFO OSM llama-3.1-8b-instruct: 1104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:19:02,652 INFO OSM llama-3.1-8b-instruct: 1200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:20:39,616 INFO OSM llama-3.1-8b-instruct: 1304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:22:18,662 INFO OSM llama-3.1-8b-instruct: 1400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:24:06,852 INFO OSM llama-3.1-8b-instruct: 1504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:25:46,182 INFO OSM llama-3.1-8b-instruct: 1600/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:27:29,698 INFO OSM llama-3.1-8b-instruct: 1704/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:29:11,211 INFO OSM llama-3.1-8b-instruct: 1800/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:30:59,571 INFO OSM llama-3.1-8b-instruct: 1904/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:32:35,058 INFO OSM llama-3.1-8b-instruct: 2000/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:34:26,881 INFO OSM llama-3.1-8b-instruct: 2104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:36:05,168 INFO OSM llama-3.1-8b-instruct: 2200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:37:58,776 INFO OSM llama-3.1-8b-instruct: 2304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:39:36,203 INFO OSM llama-3.1-8b-instruct: 2400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:41:16,031 INFO OSM llama-3.1-8b-instruct: 2504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 03:42:03,518 INFO Model 'llama-3.1-8b-instruct' unloaded and VRAM freed.
+2026-08-14 03:42:03,520 INFO all requested tasks complete (1 of 1 models)
+Loaded pretrained model meta-llama/Llama-3.1-8B-Instruct into HookedTransformer
+Moving model to device:  cuda
