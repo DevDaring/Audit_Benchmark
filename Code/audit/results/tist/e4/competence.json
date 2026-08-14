@@ -1,21 +1,21 @@
 {
   "llama-3.1-8b-instruct|hi": {
-    "n_items": 2,
-    "n_correct": 1,
-    "accuracy": null,
-    "p_value": null,
-    "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "n_items": 230,
+    "n_correct": 140,
+    "accuracy": 0.6086956521739131,
+    "p_value": 1.2847694535625829e-17,
+    "competent": true,
+    "reason": "accuracy 0.609 over 230 items, above chance at p=1.28e-17",
     "lang": "hi",
     "model_name": "llama-3.1-8b-instruct"
   },
   "llama-3.1-8b-instruct|bn": {
-    "n_items": 2,
-    "n_correct": 0,
-    "accuracy": null,
-    "p_value": null,
-    "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "n_items": 222,
+    "n_correct": 116,
+    "accuracy": 0.5225225225225225,
+    "p_value": 5.067922896336899e-09,
+    "competent": true,
+    "reason": "accuracy 0.523 over 222 items, above chance at p=5.07e-09",
     "lang": "bn",
     "model_name": "llama-3.1-8b-instruct"
   },
