@@ -60,22 +60,22 @@
     "model_name": "gemma-2-2b-it"
   },
   "phi-4-mini-instruct|hi": {
-    "n_items": 2,
-    "n_correct": 2,
-    "accuracy": null,
-    "p_value": null,
-    "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "n_items": 230,
+    "n_correct": 137,
+    "accuracy": 0.5956521739130435,
+    "p_value": 3.6380665677472114e-16,
+    "competent": true,
+    "reason": "accuracy 0.596 over 230 items, above chance at p=3.64e-16",
     "lang": "hi",
     "model_name": "phi-4-mini-instruct"
   },
   "phi-4-mini-instruct|bn": {
-    "n_items": 2,
-    "n_correct": 1,
-    "accuracy": null,
-    "p_value": null,
-    "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "n_items": 222,
+    "n_correct": 137,
+    "accuracy": 0.6171171171171171,
+    "p_value": 5.302210257234228e-18,
+    "competent": true,
+    "reason": "accuracy 0.617 over 222 items, above chance at p=5.30e-18",
     "lang": "bn",
     "model_name": "phi-4-mini-instruct"
   }

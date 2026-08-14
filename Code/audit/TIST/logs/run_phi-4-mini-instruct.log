@@ -58,3 +58,13 @@ You're using a GPT2TokenizerFast tokenizer. Please note that with a fast tokeniz
 2026-08-14 05:28:00,948 INFO phi-4-mini-instruct battery: 9200 units, 5.12 units/s
 2026-08-14 05:28:40,406 INFO phi-4-mini-instruct battery: 9400 units, 5.12 units/s
 2026-08-14 05:32:34,873 INFO phi-4-mini-instruct controls: 3998 units
+2026-08-14 05:39:19,104 INFO phi-4-mini-instruct mediation: 598 units
+2026-08-14 05:39:19,158 INFO competence probe phi-4-mini-instruct / hi on 230 determinate items
+2026-08-14 05:40:32,160 INFO OSM phi-4-mini-instruct: 104/230 prompts done (sample_index=0, batch_size=8).
+2026-08-14 05:41:49,430 INFO OSM phi-4-mini-instruct: 200/230 prompts done (sample_index=0, batch_size=8).
+2026-08-14 05:42:11,787 INFO competence phi-4-mini-instruct / hi: accuracy 0.596 over 230 items, above chance at p=3.64e-16
+2026-08-14 05:42:11,831 INFO competence probe phi-4-mini-instruct / bn on 222 determinate items
+2026-08-14 05:43:23,494 INFO OSM phi-4-mini-instruct: 104/222 prompts done (sample_index=0, batch_size=8).
+2026-08-14 05:44:35,607 INFO OSM phi-4-mini-instruct: 200/222 prompts done (sample_index=0, batch_size=8).
+2026-08-14 05:44:52,369 INFO competence phi-4-mini-instruct / bn: accuracy 0.617 over 222 items, above chance at p=5.30e-18
+2026-08-14 05:48:06,709 INFO phi-4-mini-instruct hi CDVA: 3672 units, located 3672/3672
