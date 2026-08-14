@@ -47,7 +47,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import API_MODELS, RESULTS_DIR, SEEDS_DIR  # noqa: E402
 from CPU_Only.api_behavioral import evaluate_api_model  # noqa: E402
 from CPU_Only.scoring import _answers_match  # noqa: E402
-from TIST.competence_probe import evaluate, load, probe_items, record  # noqa: E402
+from TIST.competence_probe import (  # noqa: E402
+    MIN_ITEMS,
+    evaluate,
+    load,
+    probe_items,
+    record,
+)
 from TIST.language_support import skip_reason  # noqa: E402
 
 log = logging.getLogger("e4_api")
@@ -96,7 +102,14 @@ def run(models: list[dict], langs: list[str], probe_only: bool, limit: int) -> N
             pen = pd.read_parquet(src)
 
             # ---- 1. probe, unless a verdict already exists -------------------
+            # Re-probe when the stored verdict was itself untestable. A smoke test with
+            # --limit writes an "only N scorable items" verdict, and trusting that would
+            # permanently gate the pair out on evidence the probe itself called unusable.
             verdict = load(RESULTS_DIR).get(f"{name}|{lang}")
+            if verdict is not None and (verdict.get("n_items") or 0) < MIN_ITEMS:
+                log.info("discarding untestable verdict for %s / %s (n=%s); re-probing",
+                         name, lang, verdict.get("n_items"))
+                verdict = None
             if verdict is None:
                 items = probe_items(pen)
                 if limit:
