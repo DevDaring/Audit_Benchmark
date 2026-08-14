@@ -110,6 +110,13 @@ def purge() -> int:
     return total_dropped
 
 
+def _competence() -> dict:
+    """Competence verdicts, so a gated-out pair is not mistaken for a failed one."""
+    from TIST.competence_probe import load
+
+    return load(RESULTS_DIR)
+
+
 def verify() -> list[str]:
     problems: list[str] = []
     for path in _files():
@@ -143,10 +150,25 @@ def verify() -> list[str]:
         if path.name.startswith("cdva_"):
             ok = sum(1 for r in rows if r.get("ok"))
             frac = ok / len(rows) if rows else 0.0
+
+            # An empty file is expected when the competence gate excluded the pair: the
+            # audit was never run, so there is nothing to locate. Reporting that as a
+            # problem would contradict the gate and push the reader toward treating a
+            # not-applicable cell as a failure, which is exactly what the gate exists to
+            # prevent. Only an unexplained empty file is a problem.
+            stem = path.stem[len("cdva_"):]
+            lang, _, model = stem.partition("_")
+            verdict = _competence().get(f"{model}|{lang}")
+            if ok == 0 and verdict is not None and not verdict.get("competent"):
+                log.info("%s: not applicable, %s", path.name, verdict.get("reason"))
+                continue
+
             level = log.warning if frac < 0.5 else log.info
             level("%s: located %d/%d (%.1f%%)", path.name, ok, len(rows), 100 * frac)
             if frac == 0.0:
-                problems.append(f"{path.name}: nothing located at all")
+                problems.append(
+                    f"{path.name}: nothing located and no competence verdict explains it"
+                )
 
     # Behavioural parquets must not be dry-run remnants.
     try:
