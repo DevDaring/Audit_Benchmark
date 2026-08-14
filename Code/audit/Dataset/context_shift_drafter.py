@@ -3,9 +3,13 @@ File: Dataset/context_shift_drafter.py
 Purpose: Generates slot (d) context-shift prompts (d_valid, d_harmful).
 
 Provider cascade (1 retry per key before escalating):
-  1. DeepSeek — 2 keys (primary; cheapest, best JSON compliance)
-  2. Gemini   — 4 keys (gemini-2.5-flash-lite via OpenAI-compatible endpoint)
-  3. Mistral  — 2 keys (mistral-small-latest)
+  1. DeepSeek   — 2 keys (primary; cheapest, best JSON compliance)
+  2. Mistral    — 2 keys (mistral-small-latest)
+  3. OpenRouter — 2 keys (last resort)
+
+Both keys of a provider are tried before moving to the next, so the full fallback
+path is six attempts. Gemini was removed: its keys were rate-limited through whole
+passes and contributed latency, not output.
 
 NOTE: In normal operation the pentad_dataset.parquet is pre-built and
 committed to the repo; pentad_generator.py returns the cached file
@@ -22,6 +26,7 @@ Part of the audit codebase (diagnosis half of CURE).
 
 import json
 import logging
+import os
 import sys
 import threading
 import uuid
@@ -37,10 +42,10 @@ from config import (
     DEEPSEEK_API_BASE_URL,
     DEEPSEEK_KEYS,
     DEEPSEEK_PRIMARY_MODEL_NAME,
-    GEMINI_KEYS,
-    GEMINI_MODEL_NAME,
     MISTRAL_KEYS,
     MISTRAL_MODEL_NAME,
+    OPENROUTER_API_BASE_URL,
+    OPENROUTER_KEYS,
     SEEDS_DIR,
 )
 from Dataset.prompt_utils import validate_api_slot_results
@@ -54,8 +59,8 @@ _CHECKPOINT_PATH = SEEDS_DIR / "context_shift_checkpoint.json"
 _MAX_RETRIES_PER_KEY = 1
 
 # OpenAI-compatible base URLs for Gemini and Mistral
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+_OPENROUTER_MODEL = os.getenv("OPENROUTER_PRIMARY_MODEL_NAME", "openai/gpt-4o-mini")
 
 _CONTEXT_SYSTEM_PROMPT = (
     "You are a benchmark designer creating context-shift bias probes "
@@ -120,11 +125,13 @@ def _try_providers(
     Returns (result_dict, provider_name) or raises RuntimeError.
     """
     # Build provider list: (base_url, model, keys_list, provider_label)
+    # DeepSeek -> Mistral -> OpenRouter, both keys tried within a provider before
+    # moving on, so the full path is six attempts. Gemini is gone: its keys were
+    # rate-limited through whole passes and contributed latency, not output.
     providers = [
-        (_GEMINI_BASE_URL if False else DEEPSEEK_API_BASE_URL,
-         DEEPSEEK_PRIMARY_MODEL_NAME, DEEPSEEK_KEYS, "deepseek"),
-        (_GEMINI_BASE_URL, GEMINI_MODEL_NAME, GEMINI_KEYS, "gemini"),
+        (DEEPSEEK_API_BASE_URL, DEEPSEEK_PRIMARY_MODEL_NAME, DEEPSEEK_KEYS, "deepseek"),
         (_MISTRAL_BASE_URL, MISTRAL_MODEL_NAME, MISTRAL_KEYS, "mistral"),
+        (OPENROUTER_API_BASE_URL, _OPENROUTER_MODEL, OPENROUTER_KEYS, "openrouter"),
     ]
 
     for base_url, model, keys, provider_label in providers:

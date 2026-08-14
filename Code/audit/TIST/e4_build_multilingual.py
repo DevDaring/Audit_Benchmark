@@ -58,8 +58,6 @@ from config import (  # noqa: E402
     DEEPSEEK_API_BASE_URL,
     DEEPSEEK_KEYS,
     DEEPSEEK_PRIMARY_MODEL_NAME,
-    GEMINI_KEYS,
-    GEMINI_MODEL_NAME,
     MISTRAL_KEYS,
     MISTRAL_MODEL_NAME,
     RESULTS_DIR,
@@ -71,7 +69,6 @@ log = logging.getLogger("e4_build")
 OUT = RESULTS_DIR / "tist" / "e4"
 CKPT = OUT / "translation_checkpoint.jsonl"
 _TIMEOUT = 90
-_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _MISTRAL_BASE = "https://api.mistral.ai/v1"
 
 LANG_NAME = {"hi": "Hindi", "bn": "Bengali"}
@@ -88,15 +85,12 @@ _write_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 def _providers() -> list[tuple[str, str, str, str]]:
     """
-    DeepSeek leads. The smoke test found all four Gemini keys returning 429 on the
-    free-tier quota, so leading with Gemini spent about five seconds per call on
-    retries before falling through. Gemini stays in the cascade as a second tier.
+    DeepSeek then Mistral. Gemini is deliberately absent: its free-tier keys returned
+    429 for entire passes, so it contributed retry latency rather than translations.
     """
     out = []
     for k in DEEPSEEK_KEYS:
         out.append(("deepseek", k, DEEPSEEK_API_BASE_URL, DEEPSEEK_PRIMARY_MODEL_NAME))
-    for k in GEMINI_KEYS:
-        out.append(("gemini", k, _GEMINI_BASE, GEMINI_MODEL_NAME))
     for k in MISTRAL_KEYS:
         out.append(("mistral", k, _MISTRAL_BASE, MISTRAL_MODEL_NAME))
     return out
@@ -142,24 +136,25 @@ def _extract_json(text: str) -> dict | None:
 
 
 def _call(system: str, user: str, attempt_order: list) -> tuple[dict | None, str]:
+    # One attempt per key, then straight on. No per-key retry and no backoff sleep:
+    # a failing key is almost always a quota or auth problem, which a retry will not
+    # fix, and the wait is pure latency across thousands of calls.
     for provider, key, base, model in attempt_order:
-        for _ in range(2):
-            try:
-                client = OpenAI(api_key=key, base_url=base, timeout=_TIMEOUT)
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    temperature=0.0,
-                )
-                obj = _extract_json(resp.choices[0].message.content or "")
-                if obj:
-                    return obj, provider
-            except Exception as exc:  # noqa: BLE001
-                log.debug("%s failed: %s", provider, str(exc)[:160])
-                time.sleep(1.5)
+        try:
+            client = OpenAI(api_key=key, base_url=base, timeout=_TIMEOUT)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0.0,
+            )
+            obj = _extract_json(resp.choices[0].message.content or "")
+            if obj:
+                return obj, provider
+        except Exception as exc:  # noqa: BLE001
+            log.debug("%s key failed, moving on: %s", provider, str(exc)[:160])
     return None, ""
 
 

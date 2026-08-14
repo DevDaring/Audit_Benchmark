@@ -57,8 +57,6 @@ from config import (  # noqa: E402
     DEEPSEEK_API_BASE_URL,
     DEEPSEEK_KEYS,
     DEEPSEEK_PRIMARY_MODEL_NAME,
-    GEMINI_KEYS,
-    GEMINI_MODEL_NAME,
     OPENROUTER_KEYS,
     MISTRAL_KEYS,
     MISTRAL_MODEL_NAME,
@@ -76,14 +74,13 @@ N_SAMPLE = 200
 ANNOTATORS = ["koushik", "abhinaba"]
 CRITERIA = ["c1_gold_invariant", "c2_no_new_info", "c3_grammatical", "c4_structure"]
 
-_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _MISTRAL_BASE = "https://api.mistral.ai/v1"
 _lock = threading.Lock()
 
 # Three different model families, so the panel is not three views of one model.
 #
-# The Gemini slot was dropped after the first run: all four keys returned 429 for the
-# whole pass and contributed no labels. It is replaced by gpt-4o-mini through OpenRouter,
+# Gemini is excluded entirely: all four keys returned 429 for the whole pass and
+# contributed no labels. Its slot is gpt-4o-mini through OpenRouter,
 # which adds a fourth vendor and, unlike Gemini-2.5-Flash, is not itself one of the eight
 # models under audit. Keeping an evaluated model on the annotation panel would let a
 # system grade the items it is later scored on.
@@ -253,7 +250,7 @@ def _annotate_one(row: dict, panel_name: str, keys: list, base: str, model: str)
         item=row["item_text"],
     )
     for key in keys:
-        for _ in range(2):
+        if True:
             try:
                 client = OpenAI(api_key=key, base_url=base, timeout=90)
                 resp = client.chat.completions.create(
@@ -272,8 +269,9 @@ def _annotate_one(row: dict, panel_name: str, keys: list, base: str, model: str)
                         "reason": str(obj.get("reason", ""))[:200],
                     }
             except Exception as exc:  # noqa: BLE001
-                log.debug("%s failed: %s", panel_name, str(exc)[:140])
-                time.sleep(1.5)
+                # No retry and no backoff: a failing key is a quota or auth problem,
+                # which retrying will not fix, and the wait is pure latency.
+                log.debug("%s key failed, moving on: %s", panel_name, str(exc)[:140])
     return {"item_no": row["item_no"], "prompt_id": row["prompt_id"],
             "annotator": panel_name, "ok": False}
 
