@@ -533,14 +533,66 @@ def task_e1_mediation(patcher: Patcher, model_name: str, pentad: pd.DataFrame, l
 
 
 # ---------------------------------------------------------------------------
+# Language competence probe: measure before auditing
+# ---------------------------------------------------------------------------
+def task_e4_competence(model_cfg: dict, model, tokenizer, limit: int) -> None:
+    """
+    Can this model actually read Hindi / Bengali? Decide by measurement, not by label.
+
+    Scored on slot-a items whose gold answer is a specific option rather than the
+    "cannot be determined" escape, so a model that always picks the escape cannot pass.
+    The verdict is written to results/tist/e4/competence.json and gates e4_cdva and
+    e4_behav for this model.
+    """
+    import uuid
+
+    from GPU_CPU.osm_behavioral import evaluate_osm_model
+    from CPU_Only.scoring import _answers_match
+    from TIST.competence_probe import evaluate, probe_items, record
+
+    name = model_cfg["name"]
+    for lang in ("hi", "bn"):
+        src = SEEDS_DIR / f"pentad_{lang}.parquet"
+        if not src.exists():
+            continue
+        items = probe_items(pd.read_parquet(src))
+        if limit:
+            items = items.head(max(limit, 2))
+        if items.empty:
+            continue
+
+        log.info("competence probe %s / %s on %d determinate items", name, lang, len(items))
+        try:
+            df = evaluate_osm_model(model_cfg, model, tokenizer, items,
+                                    run_id=str(uuid.uuid4()), sample_index=0)
+        except Exception as exc:  # noqa: BLE001
+            log.error("competence probe failed for %s / %s: %s", name, lang, str(exc)[:200])
+            continue
+
+        n_ok = 0
+        scorable = 0
+        for _, r in df.iterrows():
+            gold = str(r.get("gold_answer", ""))
+            if not gold:
+                continue
+            scorable += 1
+            if _answers_match(str(r.get("parsed_answer", "")), gold, str(r.get("seed_source", ""))):
+                n_ok += 1
+
+        verdict = evaluate(n_ok, scorable)
+        verdict["lang"] = lang
+        verdict["model_name"] = name
+        record(RESULTS_DIR, name, lang, verdict)
+
+# ---------------------------------------------------------------------------
 # E4 multilingual CDVA
 # ---------------------------------------------------------------------------
 def task_e4_cdva(patcher: Patcher, model_name: str, limit: int) -> None:
     for lang in ("hi", "bn"):
         # A bias audit in a language the model was never built for measures language
         # competence, not bias. Skip rather than record a zero; see TIST/language_support.
-        if not is_supported(model_name, lang):
-            log.info("SKIP %s / %s: %s", model_name, lang, skip_reason(model_name, lang))
+        if not is_supported(model_name, lang, RESULTS_DIR):
+            log.info("SKIP %s / %s: %s", model_name, lang, skip_reason(model_name, lang, RESULTS_DIR))
             continue
         src = SEEDS_DIR / f"pentad_{lang}.parquet"
         if not src.exists():
@@ -634,9 +686,9 @@ def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
     from GPU_CPU.osm_behavioral import evaluate_osm_model
 
     for lang in ("hi", "bn"):
-        if not is_supported(model_cfg["name"], lang):
+        if not is_supported(model_cfg["name"], lang, RESULTS_DIR):
             log.info("SKIP %s / %s behavioural: %s",
-                     model_cfg["name"], lang, skip_reason(model_cfg["name"], lang))
+                     model_cfg["name"], lang, skip_reason(model_cfg["name"], lang, RESULTS_DIR))
             continue
         src = SEEDS_DIR / f"pentad_{lang}.parquet"
         if not src.exists():
@@ -761,7 +813,8 @@ def main() -> None:
     (OUT / "e1").mkdir(parents=True, exist_ok=True)
     (OUT / "e4").mkdir(parents=True, exist_ok=True)
 
-    all_tasks = ["e1_battery", "e1_controls", "e1_layers", "e1_mediation", "e4_cdva", "e4_behav"]
+    all_tasks = ["e1_battery", "e1_controls", "e1_layers", "e1_mediation",
+                 "e4_competence", "e4_cdva", "e4_behav"]
     tasks = all_tasks if "all" in args.tasks else args.tasks
     models = [m for m in OSM_MODELS if not args.models or m["name"] in args.models]
     limit = 2 if args.dry else 0
@@ -832,6 +885,7 @@ def main() -> None:
                 _run("e1_controls", task_e1_controls, patcher, name, limit)
                 _run("e1_layers", task_e1_layers, patcher, name, pentad, limit)
                 _run("e1_mediation", task_e1_mediation, patcher, name, pentad, limit)
+                _run("e4_competence", task_e4_competence, cfg, model, tokenizer, limit)
                 _run("e4_cdva", task_e4_cdva, patcher, name, limit)
 
             _run("e4_behav", task_e4_behav, cfg, model, tokenizer, limit)

@@ -71,13 +71,38 @@ REASON: dict[tuple[str, str], str] = {
 }
 
 
-def is_supported(model_name: str, lang: str) -> bool:
-    """True when the vendor's documentation declares support for this language."""
+def is_supported(model_name: str, lang: str, results_dir=None) -> bool:
+    """
+    May this (model, language) pair be audited?
+
+    Measurement wins over the label. A vendor list is a conservative legal document, not a
+    capability measurement: Qwen2.5 names 29 languages without listing Hindi yet may well
+    process it, and excluding on the label alone throws away real coverage.
+
+    So a measured verdict from TIST/competence_probe decides whenever one exists, in either
+    direction. It can admit a model the vendor never listed, and it can exclude one the
+    vendor did list but which fails the probe. The declared list is only the fallback for
+    pairs that have not been probed yet.
+    """
+    if results_dir is not None:
+        from TIST.competence_probe import load as _load_competence
+
+        verdict = _load_competence(results_dir).get(f"{model_name}|{lang}")
+        if verdict is not None:
+            return bool(verdict.get("competent"))
+
     return model_name in DECLARED_SUPPORT.get(lang, set())
 
 
-def skip_reason(model_name: str, lang: str) -> str:
+def skip_reason(model_name: str, lang: str, results_dir=None) -> str:
     """Why a pair is out of scope. Used in logs and in the not-applicable cells."""
+    if results_dir is not None:
+        from TIST.competence_probe import load as _load_competence
+
+        verdict = _load_competence(results_dir).get(f"{model_name}|{lang}")
+        if verdict is not None and not verdict.get("competent"):
+            return f"failed the language-competence probe: {verdict.get('reason')}"
+
     return REASON.get(
         (model_name, lang),
         f"{model_name} does not declare support for '{lang}'",
