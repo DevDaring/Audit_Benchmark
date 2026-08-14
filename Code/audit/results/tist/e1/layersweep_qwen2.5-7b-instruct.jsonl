@@ -1,0 +1,2 @@
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "qwen2.5-7b-instruct", "window_start": 0, "window_layers": [0, 1, 2, 3], "n_layers": 28, "delta_single": 2.3046875, "delta_kl": 2.842866416935845e-05, "ok": true}
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "qwen2.5-7b-instruct", "window_start": 4, "window_layers": [4, 5, 6, 7], "n_layers": 28, "delta_single": -5.5703125, "delta_kl": 15.963043942595547, "ok": true}

@@ -1,0 +1,2 @@
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "phi-4-mini-instruct", "window_start": 0, "window_layers": [0, 1, 2, 3], "n_layers": 32, "delta_single": -9.4375, "delta_kl": 14.28930710718404, "ok": true}
+{"seed_id": "bbq_00dd6566", "sub_a": "person", "sub_b": "karen", "model_name": "phi-4-mini-instruct", "window_start": 4, "window_layers": [4, 5, 6, 7], "n_layers": 32, "delta_single": -9.5, "delta_kl": 10.014419634562113, "ok": true}
