@@ -44,3 +44,17 @@ You're using a GPT2TokenizerFast tokenizer. Please note that with a fast tokeniz
 2026-08-14 05:18:59,428 INFO phi-4-mini-instruct battery: 6400 units, 5.09 units/s
 2026-08-14 05:19:37,753 INFO phi-4-mini-instruct battery: 6600 units, 5.10 units/s
 2026-08-14 05:20:16,727 INFO phi-4-mini-instruct battery: 6800 units, 5.10 units/s
+2026-08-14 05:20:55,179 INFO phi-4-mini-instruct battery: 7000 units, 5.10 units/s
+2026-08-14 05:21:33,745 INFO phi-4-mini-instruct battery: 7200 units, 5.10 units/s
+2026-08-14 05:22:12,632 INFO phi-4-mini-instruct battery: 7400 units, 5.10 units/s
+2026-08-14 05:22:51,799 INFO phi-4-mini-instruct battery: 7600 units, 5.10 units/s
+2026-08-14 05:23:30,980 INFO phi-4-mini-instruct battery: 7800 units, 5.10 units/s
+2026-08-14 05:24:09,967 INFO phi-4-mini-instruct battery: 8000 units, 5.11 units/s
+2026-08-14 05:24:48,265 INFO phi-4-mini-instruct battery: 8200 units, 5.11 units/s
+2026-08-14 05:25:26,672 INFO phi-4-mini-instruct battery: 8400 units, 5.11 units/s
+2026-08-14 05:26:05,534 INFO phi-4-mini-instruct battery: 8600 units, 5.11 units/s
+2026-08-14 05:26:43,997 INFO phi-4-mini-instruct battery: 8800 units, 5.11 units/s
+2026-08-14 05:27:22,631 INFO phi-4-mini-instruct battery: 9000 units, 5.11 units/s
+2026-08-14 05:28:00,948 INFO phi-4-mini-instruct battery: 9200 units, 5.12 units/s
+2026-08-14 05:28:40,406 INFO phi-4-mini-instruct battery: 9400 units, 5.12 units/s
+2026-08-14 05:32:34,873 INFO phi-4-mini-instruct controls: 3998 units
