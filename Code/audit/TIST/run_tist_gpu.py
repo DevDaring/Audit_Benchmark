@@ -39,6 +39,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import OSM_MODELS, RANDOM_SEED, RESULTS_DIR, SEEDS_DIR  # noqa: E402
 from GPU_CPU.load_osm import load_model, unload_model  # noqa: E402
+from TIST.language_support import is_supported, skip_reason  # noqa: E402
 from TIST.patch_core import (  # noqa: E402
     Patcher,
     choose_placebo_positions,
@@ -536,6 +537,11 @@ def task_e1_mediation(patcher: Patcher, model_name: str, pentad: pd.DataFrame, l
 # ---------------------------------------------------------------------------
 def task_e4_cdva(patcher: Patcher, model_name: str, limit: int) -> None:
     for lang in ("hi", "bn"):
+        # A bias audit in a language the model was never built for measures language
+        # competence, not bias. Skip rather than record a zero; see TIST/language_support.
+        if not is_supported(model_name, lang):
+            log.info("SKIP %s / %s: %s", model_name, lang, skip_reason(model_name, lang))
+            continue
         src = SEEDS_DIR / f"pentad_{lang}.parquet"
         if not src.exists():
             log.warning("%s absent; skipping %s CDVA", src.name, lang)
@@ -628,6 +634,10 @@ def task_e4_behav(model_cfg: dict, model, tokenizer, limit: int) -> None:
     from GPU_CPU.osm_behavioral import evaluate_osm_model
 
     for lang in ("hi", "bn"):
+        if not is_supported(model_cfg["name"], lang):
+            log.info("SKIP %s / %s behavioural: %s",
+                     model_cfg["name"], lang, skip_reason(model_cfg["name"], lang))
+            continue
         src = SEEDS_DIR / f"pentad_{lang}.parquet"
         if not src.exists():
             log.warning("%s absent; skipping %s behavioural", src.name, lang)
