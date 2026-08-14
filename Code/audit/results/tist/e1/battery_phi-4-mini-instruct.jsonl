@@ -9568,3 +9568,5 @@
 {"seed_id": "stereo_fad0127e", "sub_a": "sikh", "sub_b": "muslim", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "'Phi3DecoderLayer' object has no attribute 'output'"}
 {"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "person", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}
 {"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "wealthy", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}
+{"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "person", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}
+{"seed_id": "bbq_00dd6566", "sub_a": "karen", "sub_b": "wealthy", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}
