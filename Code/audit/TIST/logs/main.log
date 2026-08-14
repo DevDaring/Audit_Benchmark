@@ -7,3 +7,6 @@ NVIDIA A100-SXM4-80GB, 81920 MiB, 0 MiB
 [parallel] start gemma-2-2b-it
 [parallel] gemma-2-2b-it done
 [parallel] start phi-4-mini-instruct
+[parallel] phi-4-mini-instruct done
+[parallel] all models finished, failures=0
+0 MiB

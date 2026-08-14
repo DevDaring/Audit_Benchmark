@@ -82,3 +82,45 @@ You're using a GPT2TokenizerFast tokenizer. Please note that with a fast tokeniz
 2026-08-14 06:02:50,014 INFO OSM phi-4-mini-instruct: 1000/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 06:04:06,472 INFO OSM phi-4-mini-instruct: 1104/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 06:05:12,052 INFO OSM phi-4-mini-instruct: 1200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:06:23,308 INFO OSM phi-4-mini-instruct: 1304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:07:29,147 INFO OSM phi-4-mini-instruct: 1400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:09:01,444 INFO OSM phi-4-mini-instruct: 1504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:10:07,408 INFO OSM phi-4-mini-instruct: 1600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:11:19,092 INFO OSM phi-4-mini-instruct: 1704/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:12:25,470 INFO OSM phi-4-mini-instruct: 1800/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:13:39,208 INFO OSM phi-4-mini-instruct: 1904/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:14:45,266 INFO OSM phi-4-mini-instruct: 2000/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:15:55,967 INFO OSM phi-4-mini-instruct: 2104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:17:01,634 INFO OSM phi-4-mini-instruct: 2200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:18:23,154 INFO OSM phi-4-mini-instruct: 2304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:19:39,571 INFO OSM phi-4-mini-instruct: 2400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:20:50,746 INFO OSM phi-4-mini-instruct: 2504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:21:56,169 INFO OSM phi-4-mini-instruct: 2600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:22:29,503 INFO phi-4-mini-instruct behavioural bn: 2548 prompts
+2026-08-14 06:23:46,133 INFO OSM phi-4-mini-instruct: 104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:24:52,208 INFO OSM phi-4-mini-instruct: 200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:26:03,879 INFO OSM phi-4-mini-instruct: 304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:27:09,693 INFO OSM phi-4-mini-instruct: 400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:28:22,374 INFO OSM phi-4-mini-instruct: 504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:29:28,414 INFO OSM phi-4-mini-instruct: 600/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:30:39,961 INFO OSM phi-4-mini-instruct: 704/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:31:46,640 INFO OSM phi-4-mini-instruct: 800/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:33:03,739 INFO OSM phi-4-mini-instruct: 904/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:34:09,794 INFO OSM phi-4-mini-instruct: 1000/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:35:25,206 INFO OSM phi-4-mini-instruct: 1104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:36:48,838 INFO OSM phi-4-mini-instruct: 1200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:38:03,481 INFO OSM phi-4-mini-instruct: 1304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:39:16,091 INFO OSM phi-4-mini-instruct: 1400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:40:28,298 INFO OSM phi-4-mini-instruct: 1504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:41:35,098 INFO OSM phi-4-mini-instruct: 1600/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:42:52,502 INFO OSM phi-4-mini-instruct: 1704/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:44:06,115 INFO OSM phi-4-mini-instruct: 1800/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:45:23,548 INFO OSM phi-4-mini-instruct: 1904/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:46:31,000 INFO OSM phi-4-mini-instruct: 2000/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:47:48,720 INFO OSM phi-4-mini-instruct: 2104/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:48:54,989 INFO OSM phi-4-mini-instruct: 2200/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:50:17,636 INFO OSM phi-4-mini-instruct: 2304/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:51:28,981 INFO OSM phi-4-mini-instruct: 2400/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:52:45,900 INFO OSM phi-4-mini-instruct: 2504/2548 prompts done (sample_index=0, batch_size=8).
+2026-08-14 06:53:24,580 INFO Model 'phi-4-mini-instruct' unloaded and VRAM freed.
+2026-08-14 06:53:24,584 INFO all requested tasks complete (1 of 1 models)
