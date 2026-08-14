@@ -349,9 +349,14 @@ def cmd_score() -> None:
     # -- human sheets ------------------------------------------------------
     human = {}
     for who in ANNOTATORS:
-        path = OUT / f"iaa_sheet_{who}.csv"
+        # Prefer the "_completed" file the annotators actually return; fall back to the
+        # blank sheet name so a partially filled sheet is still readable.
+        path = OUT / f"iaa_sheet_{who}_completed.csv"
+        if not path.exists():
+            path = OUT / f"iaa_sheet_{who}.csv"
         if not path.exists():
             continue
+        log.info("reading %s for %s", path.name, who)
         df = pd.read_csv(path)
         filled = df[df["overall"].notna() & (df["overall"].astype(str).str.strip() != "")]
         if len(filled) == len(manifest):
@@ -363,6 +368,38 @@ def cmd_score() -> None:
     if len(human) == 2:
         a_df, b_df = human[ANNOTATORS[0]], human[ANNOTATORS[1]]
         idx = a_df.index.intersection(b_df.index)
+
+        # Refuse to report agreement between two copies of one file.
+        #
+        # Cohen's kappa assumes two independent judgements. If both sheets carry identical
+        # labels the statistic is 1.0 by construction and measures nothing, yet it is the
+        # single most attractive number in the section and the easiest for a reviewer to
+        # falsify: identical files, identical notes, kappa exactly 1. Publishing it would
+        # be worse than reporting no agreement figure at all.
+        cols = CRITERIA + ["overall"]
+        same = a_df.loc[idx, cols].astype(str).equals(b_df.loc[idx, cols].astype(str))
+        notes_same = True
+        if "notes" in a_df.columns and "notes" in b_df.columns:
+            notes_same = a_df.loc[idx, "notes"].fillna("").astype(str).equals(
+                b_df.loc[idx, "notes"].fillna("").astype(str))
+        if same:
+            report["human"] = {
+                "status": "REJECTED: the two sheets are identical",
+                "detail": (
+                    "Every annotation cell matches" + (" and so do the notes" if notes_same else "")
+                    + ". Cohen's kappa on duplicate sheets is 1.0 by construction and "
+                    "measures nothing. Inter-annotator agreement needs two people scoring "
+                    "the same items independently."
+                ),
+                "n_items": int(len(idx)),
+                "single_annotator_pass_rate": float(
+                    a_df.loc[idx, "overall"].astype(int).mean()
+                ),
+            }
+            log.error("the two annotation sheets are identical; refusing to report kappa")
+            (OUT / "iaa_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+            print(json.dumps(report, indent=2))
+            return
         ka = {}
         for col in CRITERIA + ["overall"]:
             ka[col] = cohen_kappa(
