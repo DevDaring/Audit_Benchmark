@@ -600,3 +600,5 @@
 {"seed_id": "stereo_f6664c1c", "sub_a": "transgender_man", "sub_b": "mother", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
 {"seed_id": "stereo_f6664c1c", "sub_a": "woman", "sub_b": "mother", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
 {"seed_id": "stereo_f6664c1c", "sub_a": "woman", "sub_b": "non_binary_person", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "'Linear' object has no attribute 'output'"}
+{"seed_id": "bbq_074508ce", "sub_a": "dorothy", "sub_b": "kenneth", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}
+{"seed_id": "bbq_074508ce", "sub_a": "dorothy", "sub_b": "man", "model_name": "phi-4-mini-instruct", "ok": false, "reason": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."}

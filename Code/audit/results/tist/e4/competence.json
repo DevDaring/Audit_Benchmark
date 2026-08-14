@@ -1,0 +1,82 @@
+{
+  "llama-3.1-8b-instruct|hi": {
+    "n_items": 2,
+    "n_correct": 1,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "hi",
+    "model_name": "llama-3.1-8b-instruct"
+  },
+  "llama-3.1-8b-instruct|bn": {
+    "n_items": 2,
+    "n_correct": 0,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "bn",
+    "model_name": "llama-3.1-8b-instruct"
+  },
+  "qwen2.5-7b-instruct|hi": {
+    "n_items": 2,
+    "n_correct": 2,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "hi",
+    "model_name": "qwen2.5-7b-instruct"
+  },
+  "qwen2.5-7b-instruct|bn": {
+    "n_items": 2,
+    "n_correct": 0,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "bn",
+    "model_name": "qwen2.5-7b-instruct"
+  },
+  "gemma-2-2b-it|hi": {
+    "n_items": 2,
+    "n_correct": 0,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "hi",
+    "model_name": "gemma-2-2b-it"
+  },
+  "gemma-2-2b-it|bn": {
+    "n_items": 2,
+    "n_correct": 0,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "bn",
+    "model_name": "gemma-2-2b-it"
+  },
+  "phi-4-mini-instruct|hi": {
+    "n_items": 2,
+    "n_correct": 2,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "hi",
+    "model_name": "phi-4-mini-instruct"
+  },
+  "phi-4-mini-instruct|bn": {
+    "n_items": 2,
+    "n_correct": 1,
+    "accuracy": null,
+    "p_value": null,
+    "competent": false,
+    "reason": "only 2 scorable items, need 40 for a usable test",
+    "lang": "bn",
+    "model_name": "phi-4-mini-instruct"
+  }
+}
