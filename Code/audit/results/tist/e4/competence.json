@@ -20,22 +20,22 @@
     "model_name": "llama-3.1-8b-instruct"
   },
   "qwen2.5-7b-instruct|hi": {
-    "n_items": 2,
-    "n_correct": 2,
-    "accuracy": null,
-    "p_value": null,
-    "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "n_items": 230,
+    "n_correct": 115,
+    "accuracy": 0.5,
+    "p_value": 1.3450302450098624e-07,
+    "competent": true,
+    "reason": "accuracy 0.500 over 230 items, above chance at p=1.35e-07",
     "lang": "hi",
     "model_name": "qwen2.5-7b-instruct"
   },
   "qwen2.5-7b-instruct|bn": {
-    "n_items": 2,
-    "n_correct": 0,
-    "accuracy": null,
-    "p_value": null,
+    "n_items": 222,
+    "n_correct": 52,
+    "accuracy": 0.23423423423423423,
+    "p_value": 0.9995089299668523,
     "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "reason": "accuracy 0.234 below the 0.50 floor",
     "lang": "bn",
     "model_name": "qwen2.5-7b-instruct"
   },
