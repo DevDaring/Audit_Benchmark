@@ -3,3 +3,7 @@ NVIDIA A100-SXM4-80GB, 81920 MiB, 0 MiB
 [parallel] start llama-3.1-8b-instruct
 [parallel] llama-3.1-8b-instruct done
 [parallel] start qwen2.5-7b-instruct
+[parallel] qwen2.5-7b-instruct done
+[parallel] start gemma-2-2b-it
+[parallel] gemma-2-2b-it done
+[parallel] start phi-4-mini-instruct

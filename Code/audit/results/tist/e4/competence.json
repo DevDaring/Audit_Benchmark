@@ -40,22 +40,22 @@
     "model_name": "qwen2.5-7b-instruct"
   },
   "gemma-2-2b-it|hi": {
-    "n_items": 2,
-    "n_correct": 0,
-    "accuracy": null,
-    "p_value": null,
+    "n_items": 230,
+    "n_correct": 90,
+    "accuracy": 0.391304347826087,
+    "p_value": 0.03754975739538878,
     "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "reason": "accuracy 0.391 below the 0.50 floor",
     "lang": "hi",
     "model_name": "gemma-2-2b-it"
   },
   "gemma-2-2b-it|bn": {
-    "n_items": 2,
-    "n_correct": 0,
-    "accuracy": null,
-    "p_value": null,
+    "n_items": 222,
+    "n_correct": 49,
+    "accuracy": 0.22072072072072071,
+    "p_value": 0.9999135667506189,
     "competent": false,
-    "reason": "only 2 scorable items, need 40 for a usable test",
+    "reason": "accuracy 0.221 below the 0.50 floor",
     "lang": "bn",
     "model_name": "gemma-2-2b-it"
   },

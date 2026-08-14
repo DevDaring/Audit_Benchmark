@@ -95,3 +95,23 @@ You're using a Qwen2TokenizerFast tokenizer. Please note that with a fast tokeni
 2026-08-14 04:33:20,954 INFO OSM qwen2.5-7b-instruct: 704/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 04:34:14,592 INFO OSM qwen2.5-7b-instruct: 800/2644 prompts done (sample_index=0, batch_size=8).
 2026-08-14 04:35:06,814 INFO OSM qwen2.5-7b-instruct: 904/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:36:03,012 INFO OSM qwen2.5-7b-instruct: 1000/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:36:54,888 INFO OSM qwen2.5-7b-instruct: 1104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:37:43,237 INFO OSM qwen2.5-7b-instruct: 1200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:38:42,863 INFO OSM qwen2.5-7b-instruct: 1304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:39:29,118 INFO OSM qwen2.5-7b-instruct: 1400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:40:26,560 INFO OSM qwen2.5-7b-instruct: 1504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:41:16,379 INFO OSM qwen2.5-7b-instruct: 1600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:42:12,915 INFO OSM qwen2.5-7b-instruct: 1704/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:43:12,693 INFO OSM qwen2.5-7b-instruct: 1800/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:44:11,275 INFO OSM qwen2.5-7b-instruct: 1904/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:45:04,631 INFO OSM qwen2.5-7b-instruct: 2000/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:46:04,281 INFO OSM qwen2.5-7b-instruct: 2104/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:47:01,681 INFO OSM qwen2.5-7b-instruct: 2200/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:47:59,402 INFO OSM qwen2.5-7b-instruct: 2304/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:48:56,265 INFO OSM qwen2.5-7b-instruct: 2400/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:49:48,745 INFO OSM qwen2.5-7b-instruct: 2504/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:50:41,038 INFO OSM qwen2.5-7b-instruct: 2600/2644 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:51:05,515 INFO SKIP qwen2.5-7b-instruct / bn behavioural: failed the language-competence probe: accuracy 0.234 below the 0.50 floor
+2026-08-14 04:51:05,741 INFO Model 'qwen2.5-7b-instruct' unloaded and VRAM freed.
+2026-08-14 04:51:05,745 INFO all requested tasks complete (1 of 1 models)

@@ -1,62 +1,30 @@
-2026-08-13 14:13:54,809 INFO watchdog armed: exits after 25 min with no records and no log activity
-2026-08-13 14:13:54,847 INFO pentad: 6855 prompts, 596 seeds
-2026-08-13 14:13:54,847 INFO === gemma-2-2b-it ===
-2026-08-13 14:13:56,394 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
-2026-08-13 14:13:58,074 WARNING flash_attention_2 unavailable for gemma-2-2b-it (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.35s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.44it/s]
-2026-08-13 14:13:59,645 INFO   Model gemma-2-2b-it                       | attention impl: sdpa
-2026-08-13 14:13:59,645 WARNING   WARNING: gemma-2-2b-it did not load with flash_attention_2 (got 'sdpa').
-2026-08-13 14:13:59,645 INFO Model 'gemma-2-2b-it' loaded successfully.
-2026-08-13 14:14:00,134 INFO Converting HF model 'google/gemma-2-2b-it' to HookedTransformer for CDVA patching ...
-2026-08-13 14:14:37,872 INFO HookedTransformer for 'google/gemma-2-2b-it' cached (device=cuda:0).
-2026-08-13 14:14:37,872 INFO gemma-2-2b-it: 26 layers via transformer_lens
-2026-08-13 14:16:25,466 INFO gemma-2-2b-it battery: 200 units, 1.86 units/s
-2026-08-13 14:18:11,560 INFO gemma-2-2b-it battery: 400 units, 1.87 units/s
-2026-08-13 14:19:57,785 INFO gemma-2-2b-it battery: 600 units, 1.88 units/s
-2026-08-13 14:21:44,058 INFO gemma-2-2b-it battery: 800 units, 1.88 units/s
-2026-08-13 14:23:27,907 INFO gemma-2-2b-it battery: 1000 units, 1.89 units/s
-2026-08-13 14:25:13,002 INFO gemma-2-2b-it battery: 1200 units, 1.89 units/s
-2026-08-13 14:27:01,826 INFO gemma-2-2b-it battery: 1400 units, 1.88 units/s
-2026-08-13 14:28:49,872 INFO gemma-2-2b-it battery: 1600 units, 1.88 units/s
-2026-08-13 14:30:37,475 INFO gemma-2-2b-it battery: 1800 units, 1.88 units/s
-2026-08-13 14:32:24,363 INFO gemma-2-2b-it battery: 2000 units, 1.88 units/s
-2026-08-13 14:34:09,655 INFO gemma-2-2b-it battery: 2200 units, 1.88 units/s
-2026-08-13 14:35:55,345 INFO gemma-2-2b-it battery: 2400 units, 1.88 units/s
-2026-08-13 14:37:38,632 INFO gemma-2-2b-it battery: 2600 units, 1.88 units/s
-2026-08-13 14:39:23,553 INFO gemma-2-2b-it battery: 2800 units, 1.88 units/s
-2026-08-13 14:41:11,441 INFO gemma-2-2b-it battery: 3000 units, 1.88 units/s
-2026-08-13 14:42:58,212 INFO gemma-2-2b-it battery: 3200 units, 1.88 units/s
-2026-08-13 14:44:43,673 INFO gemma-2-2b-it battery: 3400 units, 1.88 units/s
-2026-08-13 14:46:31,740 INFO gemma-2-2b-it battery: 3600 units, 1.88 units/s
-2026-08-13 14:48:20,257 INFO gemma-2-2b-it battery: 3800 units, 1.88 units/s
-2026-08-13 14:50:05,639 INFO gemma-2-2b-it battery: 4000 units, 1.88 units/s
-2026-08-13 14:51:55,515 INFO gemma-2-2b-it battery: 4200 units, 1.88 units/s
-2026-08-13 14:53:48,156 INFO gemma-2-2b-it battery: 4400 units, 1.87 units/s
-2026-08-13 14:55:37,989 INFO gemma-2-2b-it battery: 4600 units, 1.87 units/s
-2026-08-13 14:57:26,794 INFO gemma-2-2b-it battery: 4800 units, 1.87 units/s
-2026-08-13 14:59:16,758 INFO gemma-2-2b-it battery: 5000 units, 1.87 units/s
-2026-08-13 15:01:04,738 INFO gemma-2-2b-it battery: 5200 units, 1.87 units/s
-2026-08-13 15:02:51,550 INFO gemma-2-2b-it battery: 5400 units, 1.87 units/s
-2026-08-13 15:04:40,545 INFO gemma-2-2b-it battery: 5600 units, 1.87 units/s
-2026-08-13 15:06:29,109 INFO gemma-2-2b-it battery: 5800 units, 1.86 units/s
-2026-08-13 15:08:14,659 INFO gemma-2-2b-it battery: 6000 units, 1.87 units/s
-2026-08-13 15:10:00,955 INFO gemma-2-2b-it battery: 6200 units, 1.87 units/s
-2026-08-13 15:11:47,567 INFO gemma-2-2b-it battery: 6400 units, 1.87 units/s
-2026-08-13 15:13:32,192 INFO gemma-2-2b-it battery: 6600 units, 1.87 units/s
-2026-08-13 15:15:16,273 INFO gemma-2-2b-it battery: 6800 units, 1.87 units/s
-2026-08-13 15:16:59,290 INFO gemma-2-2b-it battery: 7000 units, 1.87 units/s
-2026-08-13 15:18:43,374 INFO gemma-2-2b-it battery: 7200 units, 1.87 units/s
-2026-08-13 15:20:29,608 INFO gemma-2-2b-it battery: 7400 units, 1.87 units/s
-2026-08-13 15:22:15,854 INFO gemma-2-2b-it battery: 7600 units, 1.87 units/s
-2026-08-13 15:24:02,162 INFO gemma-2-2b-it battery: 7800 units, 1.87 units/s
-2026-08-13 15:25:49,020 INFO gemma-2-2b-it battery: 8000 units, 1.87 units/s
-2026-08-13 15:27:34,979 INFO gemma-2-2b-it battery: 8200 units, 1.87 units/s
-2026-08-13 15:29:19,242 INFO gemma-2-2b-it battery: 8400 units, 1.87 units/s
-2026-08-13 15:31:04,151 INFO gemma-2-2b-it battery: 8600 units, 1.88 units/s
-2026-08-13 15:32:47,551 INFO gemma-2-2b-it battery: 8800 units, 1.88 units/s
-2026-08-13 15:34:29,283 INFO gemma-2-2b-it battery: 9000 units, 1.88 units/s
-2026-08-13 15:36:12,271 INFO gemma-2-2b-it battery: 9200 units, 1.88 units/s
-2026-08-13 15:37:57,963 INFO gemma-2-2b-it battery: 9400 units, 1.88 units/s
-2026-08-13 15:49:04,583 INFO gemma-2-2b-it controls: 3998 units
-2026-08-13 15:53:04,149 INFO gemma-2-2b-it layer sweep: 2000 window-units
-2026-08-13 15:58:33,597 INFO gemma-2-2b-it layer sweep: 4800 window-units
+2026-08-14 04:51:10,053 INFO watchdog armed: exits after 25 min with no records and no log activity
+2026-08-14 04:51:10,109 INFO pentad: 6855 prompts, 596 seeds
+2026-08-14 04:51:10,109 INFO === gemma-2-2b-it ===
+2026-08-14 04:51:11,693 INFO Loading model: gemma-2-2b-it (google/gemma-2-2b-it) ...
+2026-08-14 04:51:13,450 WARNING flash_attention_2 unavailable for gemma-2-2b-it (FlashAttention2 has been toggled on, but it cannot be used due to the following error: the package flash_attn seems to be not installed. Please refer to the doc); falling back to sdpa
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.27s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:01<00:00,  1.51it/s]
+2026-08-14 04:51:14,931 INFO   Model gemma-2-2b-it                       | attention impl: sdpa
+2026-08-14 04:51:14,931 WARNING   WARNING: gemma-2-2b-it did not load with flash_attention_2 (got 'sdpa').
+2026-08-14 04:51:14,931 INFO Model 'gemma-2-2b-it' loaded successfully.
+2026-08-14 04:51:15,379 INFO Converting HF model 'google/gemma-2-2b-it' to HookedTransformer for CDVA patching ...
+2026-08-14 04:52:05,299 INFO HookedTransformer for 'google/gemma-2-2b-it' cached (device=cuda:0).
+2026-08-14 04:52:05,299 INFO gemma-2-2b-it: 26 layers via transformer_lens
+2026-08-14 04:52:18,493 INFO gemma-2-2b-it controls: 77 units
+2026-08-14 04:55:53,672 INFO gemma-2-2b-it mediation: 0 units
+2026-08-14 04:55:53,723 INFO competence probe gemma-2-2b-it / hi on 230 determinate items
+2026-08-14 04:56:18,798 INFO OSM gemma-2-2b-it: 104/230 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:56:39,922 INFO OSM gemma-2-2b-it: 200/230 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:56:47,725 INFO competence gemma-2-2b-it / hi: accuracy 0.391 below the 0.50 floor
+2026-08-14 04:56:47,770 INFO competence probe gemma-2-2b-it / bn on 222 determinate items
+2026-08-14 04:57:11,238 INFO OSM gemma-2-2b-it: 104/222 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:57:32,549 INFO OSM gemma-2-2b-it: 200/222 prompts done (sample_index=0, batch_size=8).
+2026-08-14 04:57:37,785 INFO competence gemma-2-2b-it / bn: accuracy 0.221 below the 0.50 floor
+2026-08-14 04:57:37,785 INFO SKIP gemma-2-2b-it / hi: failed the language-competence probe: accuracy 0.391 below the 0.50 floor
+2026-08-14 04:57:37,785 INFO SKIP gemma-2-2b-it / bn: failed the language-competence probe: accuracy 0.221 below the 0.50 floor
+2026-08-14 04:57:37,786 INFO SKIP gemma-2-2b-it / hi behavioural: failed the language-competence probe: accuracy 0.391 below the 0.50 floor
+2026-08-14 04:57:37,786 INFO SKIP gemma-2-2b-it / bn behavioural: failed the language-competence probe: accuracy 0.221 below the 0.50 floor
+2026-08-14 04:57:37,995 INFO Model 'gemma-2-2b-it' unloaded and VRAM freed.
+2026-08-14 04:57:37,996 INFO all requested tasks complete (1 of 1 models)
+Loaded pretrained model google/gemma-2-2b-it into HookedTransformer
+Moving model to device:  cuda
