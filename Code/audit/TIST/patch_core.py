@@ -126,7 +126,10 @@ def _resid_cache_nnsight(nn_model: Any, hf_model: Any, prompt: str) -> dict[int,
         for i in range(n_layers):
             layer = nn_model.model.layers[i] if shape_b else nn_model.layers[i]
             saved[i] = layer.output[0][0].save()   # [seq, d_model], all positions
-    return {i: v.value.clone() for i, v in saved.items()}
+    # detach: nnsight returns grad-tracking tensors, and .numpy() on one raises
+    # "Can't call numpy() on Tensor that requires grad". The TransformerLens path
+    # is already inside torch.no_grad(), so only this side needs it.
+    return {i: v.value.detach().clone() for i, v in saved.items()}
 
 
 def _final_logits_nnsight(nn_model: Any, hf_model: Any, prompt: str, patch: dict | None) -> "np.ndarray":
@@ -141,7 +144,7 @@ def _final_logits_nnsight(nn_model: Any, hf_model: Any, prompt: str, patch: dict
                 layer = nn_model.model.layers[layer_idx] if shape_b else nn_model.layers[layer_idx]
                 layer.output[0][:, tgt, :] = vec
         logits = nn_model.lm_head.output.save()
-    return logits.value[0, -1, :].float().cpu().numpy()
+    return logits.value[0, -1, :].detach().float().cpu().numpy()
 
 
 class Patcher:
