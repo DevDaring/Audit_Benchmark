@@ -78,5 +78,99 @@
     "reason": "accuracy 0.617 over 222 items, above chance at p=5.30e-18",
     "lang": "bn",
     "model_name": "phi-4-mini-instruct"
+  },
+  "mistral-medium|hi": {
+    "n_items": 230,
+    "n_correct": 202,
+    "accuracy": 0.8782608695652174,
+    "p_value": 4.1888577153785136e-66,
+    "competent": true,
+    "reason": "accuracy 0.878 over 230 items, above chance at p=4.19e-66",
+    "lang": "hi",
+    "model_name": "mistral-medium",
+    "route": "api"
+  },
+  "mistral-medium|bn": {
+    "n_items": 222,
+    "n_correct": 193,
+    "accuracy": 0.8693693693693694,
+    "p_value": 1.2872767984581201e-61,
+    "competent": true,
+    "reason": "accuracy 0.869 over 222 items, above chance at p=1.29e-61",
+    "lang": "bn",
+    "model_name": "mistral-medium",
+    "route": "api"
+  },
+  "qwen3-next-80b-a3b|hi": {
+    "n_items": 230,
+    "n_correct": 188,
+    "accuracy": 0.817,
+    "p_value": 1.85e-51,
+    "competent": true,
+    "reason": "accuracy 0.817 over 230 items, above chance at p=1.85e-51",
+    "lang": "hi",
+    "model_name": "qwen3-next-80b-a3b",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
+  },
+  "qwen3-next-80b-a3b|bn": {
+    "n_items": 222,
+    "n_correct": 187,
+    "accuracy": 0.842,
+    "p_value": 3.44e-55,
+    "competent": true,
+    "reason": "accuracy 0.842 over 222 items, above chance at p=3.44e-55",
+    "lang": "bn",
+    "model_name": "qwen3-next-80b-a3b",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
+  },
+  "amazon-nova-2-lite|hi": {
+    "n_items": 230,
+    "n_correct": 161,
+    "accuracy": 0.7,
+    "p_value": 8.18e-30,
+    "competent": true,
+    "reason": "accuracy 0.700 over 230 items, above chance at p=8.18e-30",
+    "lang": "hi",
+    "model_name": "amazon-nova-2-lite",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
+  },
+  "amazon-nova-2-lite|bn": {
+    "n_items": 222,
+    "n_correct": 154,
+    "accuracy": 0.694,
+    "p_value": 6.62e-28,
+    "competent": true,
+    "reason": "accuracy 0.694 over 222 items, above chance at p=6.62e-28",
+    "lang": "bn",
+    "model_name": "amazon-nova-2-lite",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
+  },
+  "gemini-2.5-flash|hi": {
+    "n_items": 230,
+    "n_correct": 213,
+    "accuracy": 0.926,
+    "p_value": 5.4e-80,
+    "competent": true,
+    "reason": "accuracy 0.926 over 230 items, above chance at p=5.40e-80",
+    "lang": "hi",
+    "model_name": "gemini-2.5-flash",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
+  },
+  "gemini-2.5-flash|bn": {
+    "n_items": 222,
+    "n_correct": 209,
+    "accuracy": 0.941,
+    "p_value": 3.62e-82,
+    "competent": true,
+    "reason": "accuracy 0.941 over 222 items, above chance at p=3.62e-82",
+    "lang": "bn",
+    "model_name": "gemini-2.5-flash",
+    "route": "api",
+    "restored_from": "probe.log after an accidental git checkout overwrote the file"
   }
 }

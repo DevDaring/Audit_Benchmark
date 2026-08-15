@@ -1,9 +1,20 @@
 {
   "n_items": 200,
   "human": {
-    "status": "awaiting labels",
-    "sheets_present": [],
-    "instruction": "fill iaa_sheet_koushik.csv and iaa_sheet_abhinaba.csv, then rerun: python TIST/e3_annotation.py score"
+    "cohen_kappa": {
+      "c1_gold_invariant": 0.09221902017291046,
+      "c2_no_new_info": 0.7516556291390727,
+      "c3_grammatical": 0.0,
+      "c4_structure": 1.0,
+      "overall": 0.44502617801047123
+    },
+    "interpretation_overall": "moderate",
+    "pass_rate": {
+      "koushik": 0.725,
+      "abhinaba": 0.55
+    },
+    "consensus_pass_rate": 0.505,
+    "n_failed_items": 99
   },
   "llm": {
     "n_items": 200,
@@ -65,6 +76,8 @@
     "kappa_paradox_criteria": [
       "c3_grammatical",
       "c4_structure"
-    ]
+    ],
+    "agreement_with_human_consensus": 0.66,
+    "cohen_kappa_vs_human_consensus": 0.3176116407425991
   }
 }

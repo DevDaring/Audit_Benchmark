@@ -1,0 +1,10 @@
+{
+  "e1_1_placebo": 12,
+  "e1_2_layers": 30,
+  "e1_3_direction": 4,
+  "e1_4_controls": 4,
+  "e1_5_mediation": 4,
+  "e1_6_metrics": 12,
+  "e1_7_consistency": 4,
+  "tau_absC_used": 0.45634765625
+}
