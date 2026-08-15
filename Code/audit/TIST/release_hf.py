@@ -120,7 +120,7 @@ configs:
   data_files: data/controls.parquet
 ---
 
-# MIRAGE: probe sets for causal validity auditing of bias benchmarks
+# MIRAGE: probe sets for auditing the measurement validity of bias benchmarks
 
 > **Content warning.** These items contain stereotyped and offensive statements about
 > religion, gender, age, disability, nationality, race, sexual orientation, physical
@@ -129,10 +129,14 @@ configs:
 
 A bias benchmark score is evidence about a model only when the score measures group bias
 rather than the wording of an item. MIRAGE tests that condition on each item. A behavioural
-stage checks that an answer survives changes that should not alter it. A causal stage
-replaces the internal representation of the protected attribute and reads how far the gold
-logit moves. This repository holds the probe sets both stages run on, and the results they
-produced.
+stage checks that an answer survives edits that should not alter it. An intervention stage
+replaces the internal representation of the protected attribute at its token position and
+reads how far the gold logit moves. This repository holds the probe sets both stages run on,
+and the results they produced.
+
+MIRAGE measures intervention-based sensitivity of a model's answer to an internal
+representation. It does not measure real-world fairness, and it does not identify a minimal
+causal circuit.
 
 Code: [{GITHUB}]({GITHUB})
 
@@ -229,8 +233,8 @@ seed, so no across-run variance is reported.
 ```bibtex
 @article{{deb2026mirage,
   author  = {{Deb, Koushik and Basu, Abhinaba}},
-  title   = {{MIRAGE: An Intelligent System for Causal Validity Auditing of
-             Language Model Bias Benchmarks}},
+  title   = {{MIRAGE: An Intelligent System for Auditing the Measurement
+             Validity of Language Model Bias Benchmarks}},
   journal = {{ACM Transactions on Intelligent Systems and Technology}},
   year    = {{2026}},
   note    = {{Under review}}
