@@ -67,6 +67,13 @@ FILES = {
     "results/number_provenance.csv": TIST / "number_provenance.csv",
 }
 
+# The seed-level reanalysis ships too. It is the evidence that the reported effects are not
+# an artefact of counting pairs as independent, so a reader should be able to check it.
+FILES.update({
+    f"results/seed_level/{p.name}": p
+    for p in sorted((TIST / "seed_level").glob("*.csv"))
+})
+
 
 def _stats() -> dict:
     s = {}
@@ -138,9 +145,16 @@ Code: [{GITHUB}]({GITHUB})
 | `pentad_bn` | {s['bn']['rows']:,} | {s['bn']['seeds']} | Bengali translations |
 | `controls` | {s['ctrl']['rows']:,} | {s['ctrl']['seeds']} | Synthetic items with a known causal verdict |
 
-`results/` carries the tables the paper reports, including the validity leaderboard, the
+`results/` carries the tables the paper reports, including the validity profile, the
 competence gate verdicts, and `number_provenance.csv`, which maps every number in the paper
 to the file it came from.
+
+`results/seed_level/` carries the reanalysis in which the SEED, not the counterfactual pair,
+is the unit of inference. A seed yields a median of twenty pairs that share a passage and an
+answer set, so testing over pairs would treat dependent observations as independent. It also
+carries `provenance_audit.csv`, which reconciles every count in the paper against its source
+file, and `substitution_check.csv`, which tests whether patching every layer at the protected
+position merely reproduces the donor run.
 
 ## The pentad
 

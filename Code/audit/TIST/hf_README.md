@@ -53,9 +53,16 @@ Code: [https://github.com/DevDaring/Audit_Benchmark](https://github.com/DevDarin
 | `pentad_bn` | 2,548 | 222 | Bengali translations |
 | `controls` | 1,200 | 200 | Synthetic items with a known causal verdict |
 
-`results/` carries the tables the paper reports, including the validity leaderboard, the
+`results/` carries the tables the paper reports, including the validity profile, the
 competence gate verdicts, and `number_provenance.csv`, which maps every number in the paper
 to the file it came from.
+
+`results/seed_level/` carries the reanalysis in which the SEED, not the counterfactual pair,
+is the unit of inference. A seed yields a median of twenty pairs that share a passage and an
+answer set, so testing over pairs would treat dependent observations as independent. It also
+carries `provenance_audit.csv`, which reconciles every count in the paper against its source
+file, and `substitution_check.csv`, which tests whether patching every layer at the protected
+position merely reproduces the donor run.
 
 ## The pentad
 
