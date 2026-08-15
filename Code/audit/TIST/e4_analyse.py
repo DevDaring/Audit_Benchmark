@@ -78,8 +78,14 @@ def coverage() -> pd.DataFrame:
             df = _read_jsonl(E4 / f"cdva_{lang}_{model}.jsonl")
             if df.empty:
                 continue
-            ok = df["ok"].astype(bool)
-            not_found = df.loc[~ok, "reason"].astype(str).str.contains("position", case=False).sum()
+            ok = df["ok"].astype(bool) if "ok" in df.columns else pd.Series(True, index=df.index)
+            # After purge_and_verify --purge the failed rows are gone and with them the
+            # "reason" column, so the breakdown is only available on an unpurged file.
+            if "reason" in df.columns and (~ok).any():
+                not_found = int(df.loc[~ok, "reason"].astype(str)
+                                .str.contains("position", case=False).sum())
+            else:
+                not_found = 0
             rows.append(
                 {
                     "lang": lang,

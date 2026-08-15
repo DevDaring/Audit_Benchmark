@@ -1,0 +1,20 @@
+float,quantity,source_file
+tab:cost,"wall clock, Llama-3.1-8B",TIST/logs/run_llama-3.1-8b-instruct.log
+tab:cost,"wall clock, Qwen2.5-7B",TIST/logs/run_qwen2.5-7b-instruct.log
+tab:cost,"wall clock, Gemma-2-2B",TIST/logs/run_gemma-2-2b-it.log
+tab:cost,"wall clock, Phi-4-mini",TIST/logs/run_phi-4-mini-instruct.log
+tab:cost,"GPU, library versions",results/tist/environment.json
+tab:placebo,"mean |C|, ratio, rank-biserial r, Holm p",results/tist/e1/stats_e1_1_placebo.csv
+tab:controls,"AUC with CI, Youden threshold, sensitivity, specificity",results/tist/e1/stats_e1_4_controls.csv
+tab:convergent,Spearman against natural indirect effect,results/tist/e1/stats_e1_5_mediation.csv
+tab:convergent,Spearman between metric variants,results/tist/e1/stats_e1_6_metrics.csv
+tab:integrity,degenerate pair counts and severity inflation,results/tist/e0/integrity_summary.json
+tab:tau,MIRAGE-B and MIRAGE-Full under both threshold rules,results/tist/e4/stats_e2b_calibrated.csv
+tab:gate,"accuracy, binomial p, admit or exclude verdict",results/tist/e4/competence.json
+tab:multi,"mean |C|, commutativity index",results/tist/e4/stats_e4_severity.csv
+tab:multi,"native and audit-robust pass, validity gap",results/tist/e4/stats_e4_validity_gap.csv
+tab:repair,parse method distribution per model,results/behavioral_results.parquet
+tab:iaa,"Cohen kappa per criterion, human pair",results/tist/e3/iaa_report.json
+tab:iaa,"Fleiss kappa per criterion, model panel",results/tist/e3/iaa_report.json
+tab:surrogate,behavioural agreement and incremental AUC,results/tist/e5/surrogate_transfer.csv
+fig:layers,normalised mean |C| by relative depth,results/tist/e1/stats_e1_2_layers.csv
