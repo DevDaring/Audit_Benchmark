@@ -534,6 +534,60 @@ def table_surrogate(out: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# tab:dataset -- what the released probe sets contain
+# ---------------------------------------------------------------------------
+def table_dataset(out: Path) -> dict:
+    """Seeds and prompts by source benchmark and by language.
+
+    Reported on the cleaned pool, which is what every number in the article was computed
+    on. The excluded count is stated separately rather than folded in silently.
+    """
+    src_en = DATASET / "pentad_dataset_clean.parquet"
+    en = pd.read_parquet(src_en)
+    _prov("tab:dataset", "seeds and prompts per source benchmark", src_en)
+
+    label = {"bbq": "BBQ", "crows_pairs": "CrowS-Pairs", "stereoset": "StereoSet"}
+    body = [r"\begin{tabular}{lrrl}", r"\toprule",
+            r"Source & Seeds & Prompts & Protected axes \\", r"\midrule"]
+    for key in ("bbq", "crows_pairs", "stereoset"):
+        g = en[en.seed_source == key]
+        if g.empty:
+            continue
+        axes = g.seed_category.nunique()
+        body.append(f"{label[key]} & {g.seed_id.nunique()} & {len(g)} & {axes} \\\\")
+    body += [r"\midrule",
+             f"English total & {en.seed_id.nunique()} & {len(en)} & "
+             f"{en.seed_category.nunique()} \\\\", r"\addlinespace"]
+
+    for lang, name in (("hi", "Hindi"), ("bn", "Bengali")):
+        p = DATASET / f"pentad_{lang}.parquet"
+        if not p.exists():
+            continue
+        d = pd.read_parquet(p)
+        _prov("tab:dataset", f"{name} seeds and prompts", p)
+        body.append(f"{name} & {d.seed_id.nunique()} & {len(d)} & "
+                    f"{d.seed_category.nunique()} \\\\")
+
+    ctrl_p = DATASET / "synthetic_controls.parquet"
+    n_ctrl = 0
+    if ctrl_p.exists():
+        c = pd.read_parquet(ctrl_p)
+        n_ctrl = int(c.seed_id.nunique())
+        _prov("tab:dataset", "synthetic control seeds and prompts", ctrl_p)
+        body += [r"\addlinespace",
+                 f"Controls & {n_ctrl} & {len(c)} & {c.seed_category.nunique()} \\\\"]
+    body += [r"\bottomrule", r"\end{tabular}"]
+
+    integ = json.loads((TIST / "e0" / "integrity_summary.json").read_text(encoding="utf-8"))
+    cap = (f"The released probe sets, after {integ['n_degenerate_variants']} malformed "
+           f"substitutions were excluded. Controls are synthetic, with a known causal verdict.")
+    (out / "tab_dataset.tex").write_text(_float("tab:dataset", cap, "\n".join(body)),
+                                         encoding="utf-8")
+    return {"en_seeds": int(en.seed_id.nunique()), "en_prompts": int(len(en)),
+            "n_controls": n_ctrl, "axes": int(en.seed_category.nunique())}
+
+
+# ---------------------------------------------------------------------------
 # tab:pentad -- one seed shown through all five slots
 # ---------------------------------------------------------------------------
 def table_pentad(out: Path) -> dict:
@@ -776,6 +830,7 @@ def main() -> None:
     tables = sub / "tables"
     tables.mkdir(parents=True, exist_ok=True)
 
+    data = table_dataset(tables)
     pentad = table_pentad(tables)
     worked = table_worked(tables)
     figure_multilingual(tables, sub / "figures")
@@ -799,6 +854,8 @@ def main() -> None:
     print(f"wrote provenance for {len(prov)} quantities to "
           f"{TIST / 'number_provenance.csv'}")
     print("\n--- facts the prose must match ---")
+    print(f"dataset: {data['en_seeds']} English seeds, {data['en_prompts']} prompts, "
+          f"{data['axes']} axes, {data['n_controls']} control seeds")
     if pentad:
         print(f"running seed {pentad['seed']}: {pentad['n_prompts']} prompts")
     if worked:

@@ -1,4 +1,8 @@
 float,quantity,source_file
+tab:dataset,seeds and prompts per source benchmark,Dataset/seeds/pentad_dataset_clean.parquet
+tab:dataset,Hindi seeds and prompts,Dataset/seeds/pentad_hi.parquet
+tab:dataset,Bengali seeds and prompts,Dataset/seeds/pentad_bn.parquet
+tab:dataset,synthetic control seeds and prompts,Dataset/seeds/synthetic_controls.parquet
 tab:pentad,prompt text of every slot for the running seed,Dataset/seeds/pentad_dataset_clean.parquet
 tab:worked,"commutator per pair, running seed",results/cdva_results.parquet
 tab:worked,"behavioural verdict, running seed",results/scored_results.parquet
