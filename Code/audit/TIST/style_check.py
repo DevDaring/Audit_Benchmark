@@ -45,15 +45,27 @@ from pathlib import Path
 
 # Phrases the reviewer named, and the family they belong to. Each says nothing checkable.
 VAGUE = [
+    # Quoted verbatim from the rejection.
     "points the other way", "load-bearing", "the central result is",
+    "is a prognosis", "prognostic of",
+    # Same family: a metaphor standing in for a measurement.
     "tells a different story", "paints a picture", "sheds light",
+    "the story is", "the picture that emerges", "speaks to", "points toward",
+    "points towards", "cuts both ways", "the upshot is", "at odds with",
+    "carries weight", "does the heavy lifting", "the crux",
+    # Hedges that assert nothing checkable.
     "it is worth noting", "it is important to note", "it should be emphasised",
     "in essence", "at its core", "fundamentally", "arguably",
+    "broadly speaking", "in some sense", "to a large extent", "by and large",
+    "relatively speaking", "more or less", "in practice, this means",
+    # Vague quantity where a number belongs.
     "a rich set of", "a range of interesting", "quite promising",
+    "a variety of", "a number of interesting", "several key", "various aspects",
+    "considerably better", "markedly improved", "clearly superior",
+    # Promissory phrasing.
     "shows promise", "opens the door", "paves the way", "a natural next step",
     "we believe that", "we argue that this is", "intuitively,",
     "somewhat surprisingly", "rather striking", "compelling evidence",
-    "the story is", "the picture that emerges", "speaks to",
 ]
 
 BANNED_VERBS = ["leverage", "harness", "delve", "utilize", "utilise", "showcase"]
