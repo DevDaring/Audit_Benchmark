@@ -1,0 +1,22 @@
+quantity,claimed,actual,match,source,note
+English seeds,596,596,True,Dataset/seeds/pentad_dataset_clean.parquet,
+English prompts,6855,6855,True,Dataset/seeds/pentad_dataset_clean.parquet,
+degenerate variants,297,297,True,results/tist/e0/integrity_summary.json,
+degenerate pair share (x1000),197,197,True,results/tist/e0/integrity_summary.json,manuscript says 19.7%
+hi seeds,230,230,True,pentad_hi.parquet,
+hi prompts,2644,2644,True,pentad_hi.parquet,
+bn seeds,222,222,True,pentad_bn.parquet,
+bn prompts,2548,2548,True,pentad_bn.parquet,
+control prompts,1200,1200,True,synthetic_controls.parquet,
+control seeds,200,200,True,synthetic_controls.parquet,
+behavioural responses,81056,81056,True,results/behavioral_results.parquet,
+"causal pairs, llama-3.1-8b-instruct",9566,9566,True,results/tist/e1/battery_llama-3.1-8b-instruct.jsonl,
+"seeds behind those pairs, llama-3.1-8b-instruct",596,596,True,results/tist/e1/battery_llama-3.1-8b-instruct.jsonl,"the inferential n, not 9566"
+"causal pairs, qwen2.5-7b-instruct",9566,9566,True,results/tist/e1/battery_qwen2.5-7b-instruct.jsonl,
+"seeds behind those pairs, qwen2.5-7b-instruct",596,596,True,results/tist/e1/battery_qwen2.5-7b-instruct.jsonl,"the inferential n, not 9566"
+"causal pairs, gemma-2-2b-it",9566,9566,True,results/tist/e1/battery_gemma-2-2b-it.jsonl,
+"seeds behind those pairs, gemma-2-2b-it",596,596,True,results/tist/e1/battery_gemma-2-2b-it.jsonl,"the inferential n, not 9566"
+"causal pairs, phi-4-mini-instruct",9566,9566,True,results/tist/e1/battery_phi-4-mini-instruct.jsonl,
+"seeds behind those pairs, phi-4-mini-instruct",596,596,True,results/tist/e1/battery_phi-4-mini-instruct.jsonl,"the inferential n, not 9566"
+model-language pairs,16,16,True,results/tist/e4/competence.json,
+admitted pairs,13,13,True,results/tist/e4/competence.json,

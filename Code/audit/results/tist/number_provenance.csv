@@ -14,12 +14,19 @@ tab:cost,"wall clock, Qwen2.5-7B",TIST/logs/run_qwen2.5-7b-instruct.log
 tab:cost,"wall clock, Gemma-2-2B",TIST/logs/run_gemma-2-2b-it.log
 tab:cost,"wall clock, Phi-4-mini",TIST/logs/run_phi-4-mini-instruct.log
 tab:cost,"GPU, library versions",results/tist/environment.json
-tab:placebo,"mean |C|, ratio, rank-biserial r, Holm p",results/tist/e1/stats_e1_1_placebo.csv
+tab:placebo,"seed-level ratio, cluster-bootstrap CI, win rate, Holm p",results/tist/seed_level/placebo_seed_level.csv
 tab:controls,"AUC with CI, Youden threshold, sensitivity, specificity",results/tist/e1/stats_e1_4_controls.csv
-tab:convergent,Spearman against natural indirect effect,results/tist/e1/stats_e1_5_mediation.csv
 tab:convergent,Spearman between metric variants,results/tist/e1/stats_e1_6_metrics.csv
+tab:convergent,pair- and seed-level Spearman against the NIE,results/tist/seed_level/mediation_seed_level.csv
 tab:integrity,degenerate pair counts and severity inflation,results/tist/e0/integrity_summary.json
 tab:tau,MIRAGE-B and MIRAGE-Full under both threshold rules,results/tist/e4/stats_e2b_calibrated.csv
+tab:diag,antisymmetry residual of the patch,results/tist/seed_level/substitution_check.csv
+tab:diag,agreement between patch directions,results/tist/e1/stats_e1_3_direction.csv
+tab:decomposition,per-slot pass rate and failure location,results/tist/seed_level/component_decomposition.csv
+tab:robust,MIRAGE-Full under three behavioural aggregation rules,results/tist/seed_level/aggregation_rules.csv
+tab:robust,causal pass under three per-seed reduction rules,results/tist/seed_level/causal_rule_sensitivity.csv
+tab:robust,in-sample vs split-half held-out threshold accuracy,results/tist/seed_level/threshold_validation.csv
+tab:benchmark,MIRAGE-B and MIRAGE-Full per source benchmark,results/tist/seed_level/by_benchmark.csv
 tab:gate,"accuracy, binomial p, admit or exclude verdict",results/tist/e4/competence.json
 tab:multi,"mean |C|, commutativity index",results/tist/e4/stats_e4_severity.csv
 tab:multi,"native and audit-robust pass, validity gap",results/tist/e4/stats_e4_validity_gap.csv

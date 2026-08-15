@@ -49,6 +49,7 @@ from config import RESULTS_DIR  # noqa: E402
 log = logging.getLogger("make_tables")
 
 TIST = RESULTS_DIR / "tist"
+SEED = TIST / "seed_level"
 LOGDIR = Path(__file__).resolve().parent / "logs"
 
 # Display names. The manuscript never prints a HuggingFace identifier.
@@ -164,36 +165,222 @@ def table_cost(out: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# tab:placebo -- E1.1
+# tab:placebo -- E1.1, at the seed level
 # ---------------------------------------------------------------------------
 def table_placebo(out: Path) -> None:
-    src = TIST / "e1" / "stats_e1_1_placebo.csv"
-    df = pd.read_csv(src)
-    _prov("tab:placebo", "mean |C|, ratio, rank-biserial r, Holm p", src)
+    """Seed-level placebo comparison.
 
-    body = [r"\begin{tabular}{llrrrrrl}", r"\toprule",
-            r"Model & Control & $n$ & Mean $|C|$ & Mean $|C|$ & Ratio & $r$ & "
-            r"$p_{\mathrm{Holm}}$ \\",
-            r" & & pairs & real & control & & & \\", r"\midrule"]
+    The shipped version tested over 9,566 pairs per model and reported p = 0. Pairs from
+    one seed share a passage and an answer set, so that test was pseudoreplicated. This
+    table reports the paired test over seeds and a cluster bootstrap of the ratio.
+    """
+    src = SEED / "placebo_seed_level.csv"
+    if not src.exists():
+        log.warning("run TIST/seed_level.py first; skipping tab:placebo")
+        return
+    df = pd.read_csv(src)
+    _prov("tab:placebo", "seed-level ratio, cluster-bootstrap CI, win rate, Holm p", src)
+
+    body = [r"\begin{tabular}{llrrrl}", r"\toprule",
+            r"Model & Control & Ratio & 95\% CI & Seeds & $p_{\mathrm{Holm}}$ \\",
+            r" & & real\,/\,control & (cluster) & won & \\", r"\midrule"]
     for m in OPEN_ORDER:
         sub = df[df["model_name"] == m]
         for i, (_, r) in enumerate(sub.iterrows()):
             name = _disp(m) if i == 0 else ""
-            p = r["p_holm"]
-            pstr = r"$<10^{-4}$" if p < 1e-4 else f"{p:.2f}"
+            p = r["p_seedlevel_holm"]
+            pstr = r"$<10^{-6}$" if p < 1e-6 else f"{p:.3f}"
             body.append(
-                f"{name} & {r['placebo']} & {int(r['n_pairs'])} & "
-                f"{r['mean_absC_real']:.3f} & {r['mean_absC_placebo']:.3f} & "
-                f"{r['ratio_real_over_placebo']:.2f} & {r['rank_biserial']:+.3f} & "
-                f"{pstr} \\\\"
+                f"{name} & {r['placebo']} & {r['ratio']:.2f} & "
+                f"[{r['ratio_ci_lo']:.2f}, {r['ratio_ci_hi']:.2f}] & "
+                f"{r['win_rate_seeds']:.2f} & {pstr} \\\\"
             )
         body.append(r"\addlinespace")
     body = body[:-1] + [r"\bottomrule", r"\end{tabular}"]
 
-    cap = (r"Real intervention against three controls. The shuffled row is a larger "
-           r"perturbation, not a null condition, and is discussed as such in the text.")
+    n = int(df["n_seeds"].iloc[0])
+    cap = (f"Real intervention against three controls over {n} seeds. Shuffled is a larger "
+           r"perturbation, not a null condition, and is excluded from the placebo claim.")
     (out / "tab_placebo.tex").write_text(
         _float("tab:placebo", cap, "\n".join(body), wide=True), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# tab:diag -- what the intervention is, and is not, doing
+# ---------------------------------------------------------------------------
+def table_diagnostics(out: Path) -> dict:
+    """Two properties of the patch that bound its interpretation.
+
+    Antisymmetry says whether the patched run is just the donor run. Direction agreement
+    says whether the verdict depends on which variant donates.
+    """
+    sub_src = SEED / "substitution_check.csv"
+    dir_src = TIST / "e1" / "stats_e1_3_direction.csv"
+    if not (sub_src.exists() and dir_src.exists()):
+        log.warning("run TIST/seed_level.py first; skipping tab:diag")
+        return {}
+    sub = pd.read_csv(sub_src)
+    dirn = pd.read_csv(dir_src)
+    _prov("tab:diag", "antisymmetry residual of the patch", sub_src)
+    _prov("tab:diag", "agreement between patch directions", dir_src)
+
+    body = [r"\begin{tabular}{lrrrr}", r"\toprule",
+            r"Model & \multicolumn{2}{c}{Antisymmetry} & "
+            r"\multicolumn{2}{c}{Direction agreement} \\",
+            r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
+            r" & $r$ & residual & label & $\kappa$ \\", r"\midrule"]
+    for m in OPEN_ORDER:
+        s = sub[sub["model_name"] == m]
+        d = dirn[dirn["model_name"] == m]
+        if s.empty or d.empty:
+            continue
+        s, d = s.iloc[0], d.iloc[0]
+        body.append(
+            f"{_disp(m)} & {s['corr_forward_vs_negreverse']:.3f} & "
+            f"{s['residual_over_scale']:.3f} & "
+            f"{d['label_agreement']:.3f} & {d['cohen_kappa_direction']:.3f} \\\\"
+        )
+    body += [r"\bottomrule", r"\end{tabular}"]
+
+    cap = ("Diagnostics on the patch. A full substitution would give antisymmetry residual 0; "
+           "direction agreement is between donating either variant.")
+    (out / "tab_diag.tex").write_text(_float("tab:diag", cap, "\n".join(body)),
+                                      encoding="utf-8")
+    return {"min_resid": float(sub["residual_over_scale"].min()),
+            "max_resid": float(sub["residual_over_scale"].max())}
+
+
+# ---------------------------------------------------------------------------
+# tab:decomposition -- where seeds actually fail
+# ---------------------------------------------------------------------------
+def table_decomposition(out: Path) -> dict:
+    src = SEED / "component_decomposition.csv"
+    if not src.exists():
+        log.warning("run TIST/failure_analysis.py first; skipping tab:decomposition")
+        return {}
+    df = pd.read_csv(src)
+    _prov("tab:decomposition", "per-slot pass rate and failure location", src)
+
+    body = [r"\begin{tabular}{lrrrrrrrr}", r"\toprule",
+            r"Model & \multicolumn{5}{c}{Slot pass rate} & Behav. & Causal & Full \\",
+            r"\cmidrule(lr){2-6}",
+            r" & (a) & (b) & (c) & (d) & (e) & all five & $|C|\leq\tau$ & \\",
+            r"\midrule"]
+    for m in OPEN_ORDER:
+        r = df[df["model_name"] == m]
+        if r.empty:
+            continue
+        r = r.iloc[0]
+        body.append(
+            f"{_disp(m)} & {r['correct_a']:.3f} & {r['correct_b']:.3f} & "
+            f"{r['stable_c']:.3f} & {r['correct_d']:.3f} & {r['cot_robust']:.3f} & "
+            f"{r['behavioural_all5']:.3f} & {r['causal_ok']:.3f} & "
+            f"{r['mirage_full']:.3f} \\\\"
+        )
+    body += [r"\bottomrule", r"\end{tabular}"]
+
+    n = int(df["n_seeds"].iloc[0])
+    cap = (f"Behavioural verdict decomposed by slot, over {n} seeds. The last three columns "
+           r"are the conjunction of the five, the causal gate, and both.")
+    (out / "tab_decomposition.tex").write_text(
+        _float("tab:decomposition", cap, "\n".join(body), wide=True), encoding="utf-8")
+
+    r0 = df[df["model_name"] == "llama-3.1-8b-instruct"]
+    return {"llama_causal_only": float(r0["fail_causal_only"].iloc[0]) if len(r0) else None,
+            "llama_behav_only": float(r0["fail_behavioural_only"].iloc[0]) if len(r0) else None,
+            "llama_both": float(r0["fail_both"].iloc[0]) if len(r0) else None}
+
+
+# ---------------------------------------------------------------------------
+# tab:robust -- does the verdict survive the analyst's choices?
+# ---------------------------------------------------------------------------
+def table_robustness(out: Path) -> dict:
+    rule_src = SEED / "aggregation_rules.csv"
+    causal_src = SEED / "causal_rule_sensitivity.csv"
+    thr_src = SEED / "threshold_validation.csv"
+    if not (rule_src.exists() and causal_src.exists() and thr_src.exists()):
+        log.warning("run TIST/failure_analysis.py and TIST/tau_validation.py first")
+        return {}
+    rules = pd.read_csv(rule_src)
+    causal = pd.read_csv(causal_src)
+    thr = pd.read_csv(thr_src)
+    _prov("tab:robust", "MIRAGE-Full under three behavioural aggregation rules", rule_src)
+    _prov("tab:robust", "causal pass under three per-seed reduction rules", causal_src)
+    _prov("tab:robust", "in-sample vs split-half held-out threshold accuracy", thr_src)
+
+    body = [r"\begin{tabular}{lrrrrrrrr}", r"\toprule",
+            r"Model & \multicolumn{3}{c}{Behavioural rule} & "
+            r"\multicolumn{3}{c}{Per-seed causal rule} & "
+            r"\multicolumn{2}{c}{Threshold acc.} \\",
+            r"\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-9}",
+            r" & all 5 & $\geq$4 & $\geq$3 & max & mean & 80\% & in-samp. & held-out \\",
+            r"\midrule"]
+    for m in OPEN_ORDER:
+        rr = rules[rules["model_name"] == m].set_index("rule")["mirage_full"]
+        cc = causal[causal["model_name"] == m]
+        tt = thr[thr["model_name"] == m]
+        if rr.empty or cc.empty or tt.empty:
+            continue
+        cc, tt = cc.iloc[0], tt.iloc[0]
+        body.append(
+            f"{_disp(m)} & {rr.get('all 5', float('nan')):.3f} & "
+            f"{rr.get('at least 4', float('nan')):.3f} & "
+            f"{rr.get('majority (3)', float('nan')):.3f} & "
+            f"{cc['rule_max']:.3f} & {cc['rule_mean']:.3f} & {cc['rule_frac80']:.3f} & "
+            f"{tt['accuracy_in_sample']:.3f} & {tt['accuracy_heldout_mean']:.3f} \\\\"
+        )
+    body += [r"\bottomrule", r"\end{tabular}"]
+
+    cap = ("Sensitivity of the audit to three analyst choices. Model ordering is preserved "
+           "in every column; only the level moves.")
+    (out / "tab_robust.tex").write_text(
+        _float("tab:robust", cap, "\n".join(body), wide=True), encoding="utf-8")
+
+    return {
+        "max_optimism": float(thr["optimism"].max()),
+        "median_pairs": float(causal["median_pairs_per_seed"].median()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# tab:benchmark -- per source, so pooled is never the only number
+# ---------------------------------------------------------------------------
+def table_benchmark(out: Path) -> dict:
+    src = SEED / "by_benchmark.csv"
+    if not src.exists():
+        log.warning("run TIST/failure_analysis.py first; skipping tab:benchmark")
+        return {}
+    df = pd.read_csv(src)
+    _prov("tab:benchmark", "MIRAGE-B and MIRAGE-Full per source benchmark", src)
+
+    label = {"bbq": "BBQ", "crows_pairs": "CrowS-Pairs", "stereoset": "StereoSet",
+             "macro-average": "Macro-average", "pooled": "Pooled"}
+    order = ["bbq", "crows_pairs", "stereoset", "macro-average", "pooled"]
+
+    body = [r"\begin{tabular}{ll" + "r" * len(OPEN_ORDER) + "}", r"\toprule",
+            r"Source & Seeds & " + " & ".join(_disp(m) for m in OPEN_ORDER) + r" \\",
+            r"\midrule"]
+    for src_key in order:
+        g = df[df["seed_source"] == src_key]
+        if g.empty:
+            continue
+        n = int(g["n_seeds"].iloc[0])
+        cells = []
+        for m in OPEN_ORDER:
+            v = g[g["model_name"] == m]["mirage_full"]
+            cells.append(f"{v.iloc[0]:.3f}" if len(v) else "--")
+        if src_key == "macro-average":
+            body.append(r"\midrule")
+        body.append(f"{label[src_key]} & {n} & " + " & ".join(cells) + r" \\")
+    body += [r"\bottomrule", r"\end{tabular}"]
+
+    cap = ("MIRAGE-Full per source benchmark. Macro-average weights the three sources "
+           "equally; pooled weights them by seed count.")
+    (out / "tab_benchmark.tex").write_text(
+        _float("tab:benchmark", cap, "\n".join(body), wide=True), encoding="utf-8")
+
+    ss = df[(df["seed_source"] == "stereoset")]
+    return {"stereoset_max": float(ss["mirage_full"].max()) if len(ss) else None}
 
 
 # ---------------------------------------------------------------------------
@@ -231,23 +418,34 @@ def table_controls(out: Path) -> None:
 # tab:convergent -- E1.5 mediation and E1.6 metric agreement in one float
 # ---------------------------------------------------------------------------
 def table_convergent(out: Path) -> None:
-    med_src = TIST / "e1" / "stats_e1_5_mediation.csv"
-    met_src = TIST / "e1" / "stats_e1_6_metrics.csv"
-    med = pd.read_csv(med_src)
-    met = pd.read_csv(met_src)
-    _prov("tab:convergent", "Spearman against natural indirect effect", med_src)
-    _prov("tab:convergent", "Spearman between metric variants", met_src)
+    """Mediation agreement at both levels, plus metric agreement.
 
-    body = [r"\begin{tabular}{lrrr}", r"\toprule",
-            r"Model & \multicolumn{1}{c}{Mediation} & "
+    Both levels are shown because they answer different questions. The pair level says how
+    well the two measures track on individual counterfactuals; the seed level is the honest
+    inferential n, since the 600 pairs come from far fewer seeds.
+    """
+    seed_src = SEED / "mediation_seed_level.csv"
+    met_src = TIST / "e1" / "stats_e1_6_metrics.csv"
+    met = pd.read_csv(met_src)
+    _prov("tab:convergent", "Spearman between metric variants", met_src)
+    if not seed_src.exists():
+        log.warning("run TIST/seed_level.py first; skipping tab:convergent")
+        return
+    med = pd.read_csv(seed_src)
+    _prov("tab:convergent", "pair- and seed-level Spearman against the NIE", seed_src)
+
+    body = [r"\begin{tabular}{lrrrr}", r"\toprule",
+            r"Model & \multicolumn{2}{c}{Agreement with the NIE} & "
             r"\multicolumn{2}{c}{Metric agreement} \\",
-            r"\cmidrule(lr){2-2}\cmidrule(lr){3-4}",
-            r" & vs.\ NIE & vs.\ KL & vs.\ logit diff. \\", r"\midrule"]
+            r"\cmidrule(lr){2-3}\cmidrule(lr){4-5}",
+            r" & per pair & per seed [95\% CI] & vs.\ KL & vs.\ logit diff. \\",
+            r"\midrule"]
     for m in OPEN_ORDER:
         a = med[med["model_name"] == m]
         b = met[met["model_name"] == m]
         if a.empty:
             continue
+        a = a.iloc[0]
 
         def _g(mb: str) -> str:
             row = b[(b["metric_a"] == "single") & (b["metric_b"] == mb)]
@@ -256,15 +454,19 @@ def table_convergent(out: Path) -> None:
             v, p = float(row["spearman"].iloc[0]), float(row["p_value"].iloc[0])
             return f"{v:.3f}" + ("" if p < 0.05 else r"$^{\dagger}$")
 
-        body.append(f"{_disp(m)} & {a['spearman_absolute'].iloc[0]:.3f} & "
+        body.append(f"{_disp(m)} & {a['spearman_pairlevel']:.3f} & "
+                    f"{a['spearman_seedlevel']:.3f} "
+                    f"[{a['ci_lo']:.2f}, {a['ci_hi']:.2f}] & "
                     f"{_g('kl')} & {_g('logitdiff')} \\\\")
     body += [r"\bottomrule", r"\end{tabular}"]
 
-    n = int(med["n_pairs"].iloc[0])
-    cap = (f"Spearman correlation of $|C|$ with the natural indirect effect over {n} gender "
-           r"pairs, and with two metric variants. $\dagger$ marks $p \geq 0.05$.")
-    (out / "tab_convergent.tex").write_text(_float("tab:convergent", cap, "\n".join(body)),
-                                            encoding="utf-8")
+    npairs = int(med["n_pairs"].iloc[0])
+    nseeds = int(med["n_seeds"].iloc[0])
+    cap = (f"Agreement of $|C|$ with the natural indirect effect over {npairs} gender pairs "
+           f"from {nseeds} seeds, and with two metric variants. "
+           r"$\dagger$ marks $p \geq 0.05$.")
+    (out / "tab_convergent.tex").write_text(
+        _float("tab:convergent", cap, "\n".join(body), wide=True), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -840,6 +1042,10 @@ def main() -> None:
     table_convergent(tables)
     table_integrity(tables)
     table_tau(tables)
+    diag = table_diagnostics(tables)
+    decomp = table_decomposition(tables)
+    robust = table_robustness(tables)
+    bench = table_benchmark(tables)
     gate = table_gate(tables)
     multi = table_multi(tables)
     repair = table_repair(tables)
@@ -862,6 +1068,18 @@ def main() -> None:
         print(f"worked: {worked['n_moved']}/{worked['n_pairs']} pairs move, "
               f"max|C| = {worked['max_absC']:.3f}, tau = {TAU:.3f}, "
               f"behavioural pass = {worked['behavioural_pass']}")
+    if diag:
+        print(f"antisymmetry residual: {diag['min_resid']:.2f}-{diag['max_resid']:.2f} "
+              f"of scale (0 would mean the patch is a full substitution)")
+    if decomp:
+        print(f"failures (Llama): {decomp['llama_behav_only']:.1%} behavioural only, "
+              f"{decomp['llama_causal_only']:.1%} causal only, "
+              f"{decomp['llama_both']:.1%} both")
+    if robust:
+        print(f"threshold optimism: max {robust['max_optimism']:.3f}; "
+              f"median pairs per seed {robust['median_pairs']:.0f}")
+    if bench:
+        print(f"StereoSet: best MIRAGE-Full across models = {bench['stereoset_max']:.3f}")
     print(f"gate: {gate['n_ok']}/{gate['n_pairs']} admitted, "
           f"{gate['n_excluded']} excluded, {gate['n_below_chance']} below chance")
     print(f"multi: {multi['n_reported']} pairs reported, "
