@@ -33,9 +33,14 @@ Thumbs.db
 !Code/audit/**/*.log
 
 # ==========================================================================
-# This public repository holds ONLY Code/mirage and README.md.
+# This public repository is the MIRAGE artifact: Code/audit and README.md only.
 # Everything below is local working material and must not be pushed.
+#
+# Code/CURE and Code/SCOPE are separate projects. They were committed here once
+# by accident; these rules are what stops it happening again.
 # ==========================================================================
+/Code/CURE/
+/Code/SCOPE/
 /Analysis/
 /Submission/
 /Submission2/
