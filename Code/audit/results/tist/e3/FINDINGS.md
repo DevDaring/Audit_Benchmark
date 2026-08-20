@@ -1,6 +1,6 @@
 # E3 — inter-annotator agreement for pentad slots (d) and (e)
 
-Answers Reviewer 2, point 1. Produced by `Code/audit/TIST/e3_annotation.py` over a
+Human validation of the generated slots. Produced by `Code/audit/TIST/e3_annotation.py` over a
 200-item stratified sample of generator-drafted items (87 slot (d), 113 slot (e), 61
 strata by benchmark x bias axis x subvariant). Guidelines: `annotation_guidelines.md`.
 Artifacts: `iaa_sample_manifest.csv`, `iaa_sheet_*.csv`, `llm_annotations.jsonl`,
@@ -10,7 +10,7 @@ Artifacts: `iaa_sample_manifest.csv`, `iaa_sheet_*.csv`, `llm_annotations.jsonl`
 
 ## 1. Human annotation: outstanding
 
-`iaa_sheet_koushik.csv` and `iaa_sheet_abhinaba.csv` are prepared and unfilled. Cohen's
+`iaa_sheet_annotator_a.csv` and `iaa_sheet_annotator_b.csv` are prepared and unfilled. Cohen's
 kappa between the two human annotators is the headline number the paper needs and it
 cannot be computed until both are returned. The scoring command reports the shortfall
 rather than substituting the LLM panel.
@@ -63,12 +63,12 @@ The result is more useful than a single agreement number would have been.
    enforce them automatically as a pipeline stage. Answer preservation and the no-new-
    information constraint cannot be delegated: agreement on C2 is barely above chance.
 2. **This is the argument for human annotation**, made with evidence rather than
-   assertion. Reviewer 2 asked whether a formal protocol exists; the answer is that a
+   assertion. On whether a formal protocol exists, the answer is that a
    protocol exists, that its mechanical half is automated in the released toolkit, and
    that its semantic half needs human judgement because a three-vendor LLM panel splits
    on it.
 3. **Report kappa with raw agreement throughout.** The C3 and C4 rows would otherwise be
-   misread by a reviewer skimming the table.
+   misread by a reader skimming the table.
 
 Placement: Methods, in the pentad-construction subsection, with the full table in the
 appendix. The automatable checks belong in the system architecture section as an

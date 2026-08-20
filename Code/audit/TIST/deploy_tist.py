@@ -1,6 +1,6 @@
 """
 File: TIST/deploy_tist.py
-Purpose: Provision the Akash GPU lease for the TIST resubmission battery.
+Purpose: Provision the Akash GPU lease for the MIRAGE GPU battery.
 
 Thin wrapper over GPU_Remaining/deploy_akash.py. That module already implements the
 Console Managed-Wallet flow correctly (create deployment, wait for bids, take the
@@ -12,7 +12,7 @@ reuses its functions and overrides four module globals:
   STATE     -> TIST/.deploy_state.json
   key name  -> Bharat_AKASH_Key, mapped onto the AKASH_API_KEY name the wrapped
                module expects. The two keys are different accounts; the TIST run uses
-               the Bharat one on Koushik's instruction.
+               the Bharat one, which is the account that holds the GPU quota.
 
 GPU preference is restricted to cards with 40 GB or more, ordered cheapest-first.
 

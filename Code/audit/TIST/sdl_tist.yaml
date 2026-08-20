@@ -1,5 +1,5 @@
 ---
-# Akash SDL for the TIST resubmission GPU battery (E1 + E4).
+# Akash SDL for the MIRAGE GPU battery (E1 + E4).
 # deploy_tist.py renders the __PLACEHOLDERS__ at submit time; the rendered copy
 # carrying secrets is never written to disk or committed.
 #

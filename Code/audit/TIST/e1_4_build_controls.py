@@ -1,9 +1,9 @@
 """
 File: TIST/e1_4_build_controls.py
 Purpose: E1.4 -- build ground-truth synthetic controls with known causal status, so the
-         audit instrument can itself be scored. Answers Reviewer 1 directly.
+         audit instrument can itself be scored.
 
-The reviewer's objection is that the causal reading of CDVA is asserted rather than
+The open objection is that the causal reading of CDVA is asserted rather than
 established. The cleanest evidence available is criterion validity: run the instrument on
 items whose correct causal verdict is known by construction, and report how well the
 commutator separates them.
@@ -19,7 +19,7 @@ commutator separates them.
 
 The reported statistic is the AUC of |C| separating positives from negatives, per model.
 A high AUC means the commutator tracks genuine causal dependence rather than patching
-mechanics; a low AUC would mean the reviewer is right. Whatever comes back is reported.
+mechanics; a low AUC would mean the objection holds. Whatever comes back is reported.
 
 Construction is deterministic and template-based, with no generator model, so the controls
 are reproducible from this file alone and carry no LLM-authored ambiguity about what the
@@ -34,7 +34,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/e1_4_build_controls.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import logging

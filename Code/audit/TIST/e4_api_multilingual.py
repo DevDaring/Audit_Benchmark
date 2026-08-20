@@ -32,7 +32,7 @@ Usage, on the server:
   ... --probe-only                       # decide the gate without the full run
   ... --limit 20                         # smoke test
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse

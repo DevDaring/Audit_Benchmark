@@ -30,7 +30,7 @@ Usage:
   python TIST/make_tables.py
   python TIST/make_tables.py --out ../../Submission
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse
@@ -70,7 +70,7 @@ LANG = {"hi": "Hindi", "bn": "Bengali", "en": "English"}
 PROVENANCE: list[dict] = []
 
 # One item carried through the whole manuscript: its pentad, its commutator, and its
-# translations. A reviewer of the previous submission wrote that the paper "completely
+# translations. An audit reported only in aggregate "completely
 # lacks concrete examples", so the running example is generated from the real files rather
 # than transcribed, and it is chosen to show the finding the paper is about: a seed the
 # benchmark scores correct that the causal stage rejects.

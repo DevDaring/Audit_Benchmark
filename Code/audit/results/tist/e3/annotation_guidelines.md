@@ -1,9 +1,7 @@
 # Annotation guidelines — pentad slots (d) and (e)
 
-Version 1.0. Authored for the ACM TIST resubmission of MIRAGE, in response to
-Reviewer 2, point 1 of The Computer Journal review, which asked for the validation
-criteria applied to generator-drafted items and for a formal inter-annotator agreement
-figure.
+Version 1.0. Authored for the MIRAGE audit. It fixes the validation criteria applied to
+generator-drafted items and the protocol behind the inter-annotator agreement figure.
 
 These guidelines are a released artefact. They are cited in the paper and versioned in
 the repository so that a third party can reproduce the judgement, not only the number.

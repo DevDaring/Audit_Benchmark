@@ -1,7 +1,7 @@
 """
 File: TIST/e4_build_multilingual.py
 Purpose: E4 step 1 -- build Hindi and Bengali pentad sets from the BBQ seed subset,
-         answering the first half of Reviewer 2 point 3 of the COMJNL rejection
+         establishing whether the audit transfers beyond English
          ("the study is restricted to English").
 
 Scope: the 254 BBQ seeds, 3,048 prompts, expanded to Hindi (hi) and Bengali (bn).
@@ -37,7 +37,7 @@ Usage:
   python TIST/e4_build_multilingual.py --langs hi --limit 3     # smoke test
   python TIST/e4_build_multilingual.py --validate-only
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse

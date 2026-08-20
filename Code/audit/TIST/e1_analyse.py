@@ -34,7 +34,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/e1_analyse.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json
@@ -342,7 +342,7 @@ def e1_6() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Cross-stack consistency (not a reviewer request; needed because the stack moved)
+# Cross-stack consistency (needed because the patching stack moved)
 # ---------------------------------------------------------------------------
 def consistency() -> pd.DataFrame:
     """

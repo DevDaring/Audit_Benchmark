@@ -26,7 +26,7 @@ Usage:
   python TIST/purge_and_verify.py --purge          # rewrites the JSONL in place
   python TIST/purge_and_verify.py --purge --verify
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse

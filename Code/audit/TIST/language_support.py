@@ -42,7 +42,7 @@ only, and Bengali on no open model in the set. Extending the multilingual claim 
 model that declares the language, for example Gemma 3, which Google documents for over
 140 languages.
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 # language -> models whose vendor documentation declares support

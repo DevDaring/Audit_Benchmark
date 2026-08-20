@@ -29,7 +29,7 @@ Usage:
   python TIST/release_hf.py --dry-run     # build the card and manifest, upload nothing
   python TIST/release_hf.py               # create the repo and push
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse

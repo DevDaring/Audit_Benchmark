@@ -1,7 +1,7 @@
 """
 File: TIST/e5_api_surrogate.py
 Purpose: E5 -- can a closed-API model be audited causally by proxy? Answers the
-         second half of Reviewer 2 point 3 of the COMJNL rejection.
+         question of whether an open stand-in can audit a closed target.
 
 CDVA needs the residual stream, so the four API models in the study receive the
 behavioural probe only. The question this module asks is whether an open model can
@@ -30,7 +30,7 @@ Implements / builds on / cites:
   - DeLong et al. (1988). "Comparing the areas under two or more correlated ROC
     curves." Biometrics 44(3):837-845.
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json

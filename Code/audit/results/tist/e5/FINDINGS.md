@@ -1,6 +1,6 @@
 # E5 — closed-API pathway: behavioural surrogate feasibility
 
-Answers the second half of Reviewer 2 point 3. Produced by
+Open-to-closed surrogate transfer. Produced by
 `Code/audit/TIST/e5_api_surrogate.py` from `results/behavioral_results.parquet` and
 `results/cdva_results.parquet`. No model was run. Artifacts:
 `surrogate_neighbours.csv`, `surrogate_transfer.csv`, `behavioural_signals.parquet`.

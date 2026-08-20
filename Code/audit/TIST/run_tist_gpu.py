@@ -1,6 +1,6 @@
 """
 File: TIST/run_tist_gpu.py
-Purpose: Single entry point for every GPU task of the TIST resubmission.
+Purpose: Single entry point for every GPU task of the MIRAGE audit.
 
 Tasks, in the order the mission file prioritises them:
 
@@ -22,7 +22,7 @@ Usage:
   python TIST/run_tist_gpu.py --tasks e1_battery --models llama-3.1-8b-instruct
   python TIST/run_tist_gpu.py --tasks all --dry     # 2 units per task, on the real code path
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse
@@ -863,7 +863,7 @@ def main() -> None:
             failures.append(f"{name}: {str(exc)[:200]}")
             continue
 
-        # Patching tasks run before the behavioural one. E1 is the evidence Reviewer 1
+        # Patching tasks run before the behavioural one. E1 is the evidence the causal
         # asked for, so it must not be blocked by a failure in the multilingual
         # generation pass. Each task is isolated: one failing task costs its own
         # results, not the rest of the model's work.

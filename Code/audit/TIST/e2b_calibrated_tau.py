@@ -3,7 +3,8 @@ File: TIST/e2b_calibrated_tau.py
 Purpose: E2b -- replace the percentile threshold with one calibrated against ground truth,
          and recompute every MIRAGE-Full number under it.
 
-Reviewer 2 objected that tau as the 75th percentile of |C| is heuristic. E2a showed the
+Setting tau at the 75th percentile of |C| is a distributional convention rather than a
+decision rule. E2a showed the
 objection understated the problem: the published tau was computed in logit units and then
 compared against a [0,1] invariance score, so the effective cut sat at the 85.4th
 percentile rather than the 75th, and the middle two models swap rank around the 80th.
@@ -26,7 +27,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/e2b_calibrated_tau.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json

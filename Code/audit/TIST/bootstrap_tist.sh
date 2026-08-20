@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bootstrap_tist.sh -- Akash entrypoint for the TIST resubmission GPU battery.
+# bootstrap_tist.sh -- Akash entrypoint for the MIRAGE GPU battery.
 #
 # Secrets (HUGGINGFACE_TOKEN, Github_Classic_Token) arrive as container env vars
 # injected by the SDL and are never committed.
@@ -65,7 +65,7 @@ PY
 echo "[tist] configure git"
 git config --global --add safe.directory "$REPO"
 git -C "$REPO" config user.name "MIRAGE TIST Runner"
-git -C "$REPO" config user.email "koushikdeb2009@gmail.com"
+git -C "$REPO" config user.email "${GIT_AUTHOR_EMAIL:-mirage-audit@users.noreply.github.com}"
 git -C "$REPO" config pull.rebase true
 if [ -n "${Github_Classic_Token:-}" ]; then
   git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/DevDaring/Audit_Benchmark.git"

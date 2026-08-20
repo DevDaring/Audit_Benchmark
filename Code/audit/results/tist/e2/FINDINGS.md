@@ -1,6 +1,6 @@
 # E2 — threshold calibration and sensitivity
 
-Answers Reviewer 2, point 2. Produced by `Code/audit/TIST/e2_tau_sensitivity.py`
+Threshold calibration and sensitivity. Produced by `Code/audit/TIST/e2_tau_sensitivity.py`
 from `results/cdva_results.parquet` (23,840 pairs, all success_flag=True, no position
 fallbacks) and `results/scored_results.parquet` (596 seeds x 4 open models).
 No model was run. Artifacts: `scale_audit.json`, `tau_sweep.parquet`,
@@ -44,7 +44,7 @@ defect is confined to how tau was derived.
 `stats_tau_sensitivity.csv` carries MIRAGE-Full per model at each percentile with 95%
 bootstrap CIs (5,000 resamples over the 596 seeds, seed 20260101). Absolute rates move a
 great deal: Llama runs from 0.002 at the 10th percentile to 0.250 at the 90th, Qwen from
-0.000 to 0.139. Reviewer 2's concern about absolute pass rates is correct and the paper
+0.000 to 0.139. The concern about absolute pass rates is correct and the paper
 must state the threshold with its units every time it reports a MIRAGE-Full number.
 
 ## 3. Ordering is stable at the ends and unstable in the middle
@@ -56,7 +56,7 @@ middle models swap:
 - percentiles 80 to 90: Llama > Qwen > Gemma > Phi
 
 The published tau sits at an effective 85.4th percentile, that is, on the far side of the
-swap. The Qwen-above-Gemma ordering the rejected manuscript reported is an artefact of the
+swap. The Qwen-above-Gemma ordering under the percentile rule is an artefact of the
 unit mismatch. Under a scale-consistent 75th-percentile rule the ordering is Gemma above
 Qwen.
 
@@ -65,7 +65,7 @@ sweep and 1.00 from the 80th percentile up (`stats_tau_ordering.csv`). With four
 the statistic has essentially no power, and no p-value in the table is significant, so the
 rank table above is the evidence the paper should show, not the correlation.
 
-The rejected manuscript's Section 6.8 claim that model ordering is stable under threshold
+The claim that model ordering is stable under threshold
 choice is therefore **too strong** and must be restated: the extreme ranks are
 threshold-invariant, the middle two are not.
 
@@ -76,7 +76,7 @@ threshold-invariant, the middle two are not.
 3. Replace the "ordering is stable" sentence with the rank table and the swap point.
 4. Keep the percentile rule only as a fallback. E2b will calibrate tau on the E1.4
    synthetic controls with Youden's J, which gives a threshold with an external criterion
-   instead of a distributional convention. That is the substantive answer to Reviewer 2.
+   instead of a distributional convention. That is the substantive result.
 
 ## 5. Open item
 

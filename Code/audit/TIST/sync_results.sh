@@ -53,7 +53,7 @@ REMOTE="https://${TOKEN}@github.com/DevDaring/Audit_Benchmark.git"
 
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
 git -C "$REPO" config user.name  "MIRAGE TIST Runner" 2>/dev/null || true
-git -C "$REPO" config user.email "koushikdeb2009@gmail.com" 2>/dev/null || true
+git -C "$REPO" config user.email "${GIT_AUTHOR_EMAIL:-mirage-audit@users.noreply.github.com}" 2>/dev/null || true
 git -C "$REPO" config pull.rebase true 2>/dev/null || true
 
 # Count result records, so the commit message says what was actually shipped.

@@ -1,7 +1,7 @@
 """
 File: TIST/tau_validation.py
 Purpose: Test whether the threshold and the per-seed causal rule are doing the work a
-         reviewer would suspect them of doing.
+         reader would suspect them of doing.
 
 Two questions, both answerable from saved outputs.
 
@@ -28,7 +28,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/tau_validation.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json

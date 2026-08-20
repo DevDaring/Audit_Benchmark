@@ -27,7 +27,7 @@ Implements / builds on / cites:
   - Vig et al. (2020). "Investigating Gender Bias in Language Models Using Causal
     Mediation Analysis." NeurIPS 2020 -- the indirect-effect decomposition of E1.5.
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import logging

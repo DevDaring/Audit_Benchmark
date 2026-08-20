@@ -1,7 +1,7 @@
 # E0 — item integrity: degenerate slot-c counterfactuals
 
-Not requested by either reviewer. Found while building the multilingual pentad, and it
-bears directly on Reviewer 1's objection, so it is reported here as its own experiment.
+Found while building the multilingual pentad. It bears directly on whether the commutator
+measures a causal property, so it is reported here as its own experiment.
 Produced by `Code/audit/TIST/e0_item_integrity.py`. No model was run. Artifacts:
 `integrity_summary.json`, `degenerate_variants.csv`, `cdva_degeneracy_mask.parquet`,
 `exclusion_log.csv`, and the cleaned pentad at
@@ -62,8 +62,8 @@ existing results rather than recomputed.
 
 ## 4. What this means for the TIST manuscript
 
-This is the strongest single item in the answer to Reviewer 1, and it should be framed
-that way. The reviewer asked whether the commutator measures a causal property or an
+This is the strongest single item of evidence on item integrity, and it should be framed
+that way. The open question is whether the commutator measures a causal property or an
 artefact of patching. Here is a case where part of it demonstrably was an artefact, found
 by the instrument's own bookkeeping, quantified, removed, and the audit rerun. An
 auditing system that can locate a construction fault in its own item pool is a stronger

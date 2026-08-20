@@ -25,7 +25,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/e4_analyse.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json

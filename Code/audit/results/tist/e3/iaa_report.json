@@ -10,8 +10,8 @@
     },
     "interpretation_overall": "moderate",
     "pass_rate": {
-      "koushik": 0.725,
-      "abhinaba": 0.55
+      "annotator_a": 0.725,
+      "annotator_b": 0.55
     },
     "consensus_pass_rate": 0.505,
     "n_failed_items": 99

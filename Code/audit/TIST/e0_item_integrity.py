@@ -3,7 +3,7 @@ File: TIST/e0_item_integrity.py
 Purpose: E0 -- detect and repair degenerate slot-c items in the pentad, and quantify
          how much of the measured causal signal they account for.
 
-Why this exists. Reviewer 1 rejected the COMJNL manuscript because the causal reading of
+Why this exists. The audit's headline claim rests on the causal reading of
 CDVA was not established. One concrete way that reading can fail is if part of the
 commutator comes from item construction rather than from the protected attribute. This
 module found exactly that case.
@@ -52,7 +52,7 @@ Usage:
   python TIST/e0_item_integrity.py            # detect + quantify + write repaired pentad
   python TIST/e0_item_integrity.py --no-repair
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse

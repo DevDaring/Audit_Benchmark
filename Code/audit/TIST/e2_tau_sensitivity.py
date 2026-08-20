@@ -1,7 +1,7 @@
 """
 File: TIST/e2_tau_sensitivity.py
-Purpose: E2 -- threshold (tau) calibration and sensitivity, answering Reviewer 2
-         point 2 of the COMJNL rejection ("the 75th percentile rule is heuristic;
+Purpose: E2 -- threshold (tau) calibration and sensitivity. The open objection is
+         that the 75th percentile rule is heuristic ("the 75th percentile rule is heuristic;
          the absolute pass rates are sensitive to it").
 
 Three things happen here, in order.
@@ -20,7 +20,7 @@ Three things happen here, in order.
    p in [10, 90] with bootstrap CIs over seeds.
 
 3. ORDERING STABILITY. Kendall tau_b between the model ordering at each p and the
-   ordering under the published rule, which is the claim the rejected manuscript made
+   ordering under the published rule, which is the claim the percentile convention supports
    in its Section 6.8 robustness check.
 
 MIRAGE-B is independent of tau, so it is read from the production scored_results
@@ -33,7 +33,7 @@ Implements / builds on / cites:
   - Efron & Tibshirani (1993). An Introduction to the Bootstrap. Chapman & Hall.
   - Kendall (1945). "The treatment of ties in ranking problems." Biometrika 33(3).
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json

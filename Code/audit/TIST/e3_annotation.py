@@ -1,7 +1,7 @@
 """
 File: TIST/e3_annotation.py
 Purpose: E3 -- inter-annotator agreement for the generator-drafted pentad slots (d) and
-         (e). Answers Reviewer 2, point 1 of the COMJNL review.
+         (e). Establishes whether the generated slots are humanly validated.
 
 Three subcommands.
 
@@ -34,7 +34,7 @@ Usage:
   python TIST/e3_annotation.py llm
   python TIST/e3_annotation.py score
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse
@@ -71,7 +71,7 @@ OUT = RESULTS_DIR / "tist" / "e3"
 GUIDELINES = OUT / "annotation_guidelines.md"
 LLM_CKPT = OUT / "llm_annotations.jsonl"
 N_SAMPLE = 200
-ANNOTATORS = ["koushik", "abhinaba"]
+ANNOTATORS = ["annotator_a", "annotator_b"]
 CRITERIA = ["c1_gold_invariant", "c2_no_new_info", "c3_grammatical", "c4_structure"]
 
 _MISTRAL_BASE = "https://api.mistral.ai/v1"
@@ -373,7 +373,7 @@ def cmd_score() -> None:
         #
         # Cohen's kappa assumes two independent judgements. If both sheets carry identical
         # labels the statistic is 1.0 by construction and measures nothing, yet it is the
-        # single most attractive number in the section and the easiest for a reviewer to
+        # single most attractive number in the section and the easiest for a reader to
         # falsify: identical files, identical notes, kappa exactly 1. Publishing it would
         # be worse than reporting no agreement figure at all.
         cols = CRITERIA + ["overall"]
@@ -423,7 +423,7 @@ def cmd_score() -> None:
         report["human"] = {
             "status": "awaiting labels",
             "sheets_present": list(human),
-            "instruction": "fill iaa_sheet_koushik.csv and iaa_sheet_abhinaba.csv, "
+            "instruction": "fill iaa_sheet_annotator_a.csv and iaa_sheet_annotator_b.csv, "
                            "then rerun: python TIST/e3_annotation.py score",
         }
 

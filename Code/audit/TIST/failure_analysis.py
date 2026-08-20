@@ -1,6 +1,6 @@
 """
 File: TIST/failure_analysis.py
-Purpose: Answer two objections a TIST reviewer will raise about the low MIRAGE-Full rates.
+Purpose: Answer two objections to the low MIRAGE-Full rates.
 
   Objection 1 (review section 8): "the conjunction of five behavioural checks plus a causal
   criterion is simply too strict, which is why the rates are low." That is an empirical
@@ -24,7 +24,7 @@ Implements / builds on / cites:
 Usage:
   python TIST/failure_analysis.py
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json
@@ -113,7 +113,7 @@ def decomposition(tau: float) -> tuple[pd.DataFrame, pd.DataFrame]:
         rec["mirage_full"] = float((g[[c for c, _ in COMPONENTS]].astype(bool).all(axis=1)
                                     & g["causal_ok"]).mean())
         # Of the seeds that fail overall, what share fail only behaviourally, only
-        # causally, or both? This is what tells a reviewer whether one stage dominates.
+        # causally, or both? This is what tells a reader whether one stage dominates.
         b = g[[c for c, _ in COMPONENTS]].astype(bool).all(axis=1)
         c = g["causal_ok"].astype(bool)
         fail = ~(b & c)

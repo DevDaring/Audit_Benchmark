@@ -31,7 +31,7 @@ Usage:
   python TIST/seed_level.py
   python TIST/seed_level.py --audit-only
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import argparse
@@ -234,7 +234,7 @@ def mediation_seed_level() -> pd.DataFrame:
 def substitution_check() -> pd.DataFrame:
     """Test whether patching all layers at the protected position reproduces the donor run.
 
-    The worry, and it is the first thing an interpretability reviewer will raise: if writing
+    The worry, and it is the first thing an interpretability reader will raise: if writing
     the donor residual stream into position p at EVERY layer simply makes that position
     behave as it does in the donor run, then the two variants differ nowhere else and the
     patched run collapses to the donor run. C would then be the plain difference in gold

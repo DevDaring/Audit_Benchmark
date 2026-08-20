@@ -41,7 +41,7 @@ Implements / builds on / cites:
   - Clopper & Pearson (1934). "The use of confidence or fiducial limits illustrated in the
     case of the binomial." Biometrika 26(4):404-413.
 
-Part of the audit codebase (MIRAGE, TIST resubmission).
+Part of the MIRAGE audit codebase.
 """
 
 import json
