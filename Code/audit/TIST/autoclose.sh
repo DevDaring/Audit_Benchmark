@@ -25,8 +25,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AUDIT="$(cd "$HERE/.." && pwd)"
 POLL="${POLL:-300}"
-API="https://api.github.com/repos/DevDaring/Audit_Benchmark/contents/Code/audit/results/tist"
-COMMITS="https://api.github.com/repos/DevDaring/Audit_Benchmark/commits?per_page=10"
+API="https://api.github.com/repos/${GITHUB_REPO}/contents/Code/audit/results/tist"
+COMMITS="https://api.github.com/repos/${GITHUB_REPO}/commits?per_page=10"
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 

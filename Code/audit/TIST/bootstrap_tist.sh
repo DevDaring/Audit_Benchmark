@@ -68,7 +68,7 @@ git -C "$REPO" config user.name "MIRAGE TIST Runner"
 git -C "$REPO" config user.email "${GIT_AUTHOR_EMAIL:-mirage-audit@users.noreply.github.com}"
 git -C "$REPO" config pull.rebase true
 if [ -n "${Github_Classic_Token:-}" ]; then
-  git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/DevDaring/Audit_Benchmark.git"
+  git -C "$REPO" remote set-url origin "https://${Github_Classic_Token}@github.com/${GITHUB_REPO:?set GITHUB_REPO to owner/name}.git"
 fi
 
 GIT_LOCK=/tmp/tist-git.lock

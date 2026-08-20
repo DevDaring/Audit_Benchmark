@@ -46,7 +46,7 @@ MIRAGE measures intervention-based sensitivity of a model's answer to an interna
 representation. It does not measure real-world fairness, and it does not identify a minimal
 causal circuit.
 
-Code: [https://github.com/DevDaring/Audit_Benchmark](https://github.com/DevDaring/Audit_Benchmark)
+Code: withheld for anonymous review.
 
 ## What is here
 
@@ -139,12 +139,11 @@ seed, so no across-run variance is reported.
 ## Citation
 
 ```bibtex
-@article{deb2026mirage,
-  author  = {Deb, Koushik and Basu, Abhinaba},
-  title   = {MIRAGE: An Intelligent System for Auditing the Measurement
-             Validity of Language Model Bias Benchmarks},
-  journal = {ACM Transactions on Intelligent Systems and Technology},
+@article{mirage2026,
+  author  = {Anonymous Author(s)},
+  title   = {MIRAGE: Auditing the Data Quality and Measurement Validity of
+             Language Model Bias Benchmarks},
   year    = {2026},
-  note    = {Under review}
+  note    = {Author list and venue withheld for anonymous review.}
 }
 ```

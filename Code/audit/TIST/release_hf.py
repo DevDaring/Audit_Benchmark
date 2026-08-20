@@ -46,10 +46,10 @@ from config import RESULTS_DIR  # noqa: E402
 
 log = logging.getLogger("release_hf")
 
-REPO_ID = "Debk/MIRAGE-Audit-Benchmark"
+REPO_ID = os.environ.get("HF_REPO_ID", "")  # e.g. <account>/MIRAGE-Audit-Benchmark
 DATASET = RESULTS_DIR.parent / "Dataset" / "seeds"
 TIST = RESULTS_DIR / "tist"
-GITHUB = "https://github.com/DevDaring/Audit_Benchmark"
+GITHUB = os.environ.get("GITHUB_REPO_URL", "")  # set for the camera-ready release
 
 FILES = {
     "data/pentad_en.parquet": DATASET / "pentad_dataset_clean.parquet",
@@ -232,12 +232,11 @@ seed, so no across-run variance is reported.
 
 ```bibtex
 @article{{deb2026mirage,
-  author  = {{Deb, Koushik and Basu, Abhinaba}},
-  title   = {{MIRAGE: An Intelligent System for Auditing the Measurement
-             Validity of Language Model Bias Benchmarks}},
-  journal = {{ACM Transactions on Intelligent Systems and Technology}},
+  author  = {{Anonymous Author(s)}},
+  title   = {{MIRAGE: Auditing the Data Quality and Measurement Validity of
+             Language Model Bias Benchmarks}},
   year    = {{2026}},
-  note    = {{Under review}}
+  note    = {{Author list and venue withheld for anonymous review.}}
 }}
 ```
 """

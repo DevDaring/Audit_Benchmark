@@ -12,6 +12,10 @@ accompanying paper: the audit toolkit, the released probe sets, every results ta
 per-number provenance file that maps each figure in the paper back to the file that produced
 it.
 
+Author names, affiliations, the target venue and the account handles are withheld while the
+paper is under anonymous review. Nothing about the method, the data or the numbers is
+withheld: every result below is reproducible from this repository alone.
+
 ---
 
 ## 0. Honest headline
@@ -265,6 +269,7 @@ git-ignored.
 | `MISTRAL_API_KEY1..2` | Mistral-Medium |
 | `MEGALLM_API_Key`, `GeminiCheap_LinkAPI_Key` | Gateway routes for Gemini-2.5-Flash |
 | `Github_Classic_Token` | Checkpoint pushes from a remote GPU |
+| `GITHUB_REPO`, `GITHUB_REPO_URL`, `HF_REPO_ID` | Where the run checkpoints and where the dataset is released. No account name is hard-coded anywhere in this repository. |
 
 Neither DeepSeek nor Gemini is an evaluation model. They appear only as the slot (d)/(e)
 generator and as the JSON-repair route for responses the deterministic parser cannot read;

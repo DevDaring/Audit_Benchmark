@@ -49,7 +49,7 @@ if [ -z "$TOKEN" ]; then
   log "FATAL no Github_Classic_Token in environment or $AUDIT/.env"
   exit 1
 fi
-REMOTE="https://${TOKEN}@github.com/DevDaring/Audit_Benchmark.git"
+REMOTE="https://${TOKEN}@github.com/${GITHUB_REPO:?set GITHUB_REPO to owner/name}.git"
 
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
 git -C "$REPO" config user.name  "MIRAGE TIST Runner" 2>/dev/null || true

@@ -4,7 +4,6 @@
 
 MIRAGE is a discriminative-validity audit framework for LLM bias benchmarks. It operationalises the Epistematics methodology of Kalaitzidis (2026) by combining behavioural probing across five probe slots with causal activation patching (CDVA). Eight models — four open-source (OSM) and four API-served — are evaluated on **596 audit seeds** drawn from BBQ, CrowS-Pairs, and StereoSet (N = 596 × 12 = **7,152 pentad rows**). WinoBias is held out for predictive-validity testing.
 
-**Target venue:** IEEE Transactions on Computational Social Systems (TCSS).  
 **Framing:** A measurement-validity instrument for auditing the sociotechnical reliability of bias benchmarks used to certify LLMs before deployment.
 
 ---
@@ -1017,11 +1016,11 @@ Together, `leaderboard.parquet` (which FM dominates per benchmark) and `validity
 
 ```bibtex
 @article{mirage2026,
-  title   = {{MIRAGE}: Mechanism-Indexed Reliability Audit for Group-bias Evaluation},
-  author  = {Debnath, Koushik and Mukherjee, Imon and Sanyal, Debarshi Kumar},
-  journal = {IEEE Transactions on Computational Social Systems},
+  title   = {{MIRAGE}: Auditing the Data Quality and Measurement Validity of
+             Language Model Bias Benchmarks},
+  author  = {Anonymous Author(s)},
   year    = {2026},
-  note    = {Under preparation.}
+  note    = {Author list and venue withheld for anonymous review.}
 }
 ```
 

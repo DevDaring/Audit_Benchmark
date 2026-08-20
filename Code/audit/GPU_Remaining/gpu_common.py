@@ -87,7 +87,7 @@ def git_configure(token: str, user_name: str = "MIRAGE GPU Runner",
     _run(["git", "config", "user.name", user_name])
     _run(["git", "config", "user.email", user_email])
     _run(["git", "config", "pull.rebase", "true"])
-    remote = f"https://{token}@github.com/DevDaring/Audit_Benchmark.git"
+    remote = f"https://{token}@github.com/{os.environ['GITHUB_REPO']}.git"
     _run(["git", "remote", "set-url", "origin", remote])
 
 
